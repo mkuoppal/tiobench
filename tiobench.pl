@@ -1,15 +1,13 @@
 #!/usr/bin/perl -w
 
 #    Author: James Manning <jmm at users.sf.net>
+#    Author: Randy Hron <rwhron at earthlink dot net>
 #       This software may be used and distributed according to the terms of
 #       the GNU General Public License, http://www.gnu.org/copyleft/gpl.html
 #
 #    Description:
 #       Perl wrapper for calling the tiotest executable multiple times
 #       with varying sets of parameters as instructed
-#
-#     Updated: Randy Hron <rwhron at earthlink dot net>
-#        Added latency results and CPU efficiency calculation.
 
 use strict;
 use Getopt::Long;
@@ -26,8 +24,10 @@ sub usage {
             "[--dir TestDir]+\n\t",
             "[--block BlkSizeInBytes]+\n\t",
             "[--random NumberRandOpsAllThreads]+\n\t",
-            "[--threads NumberOfThreads]+\n\n",
-            "[--debug DebugLevel]\n\t",
+            "[--threads NumberOfThreads]+\n\t",
+            "[--dump] (dump in Data::Dumper format, no report)\n\t",
+            "[--progress] (monitor progress with Term::ProgressBar)\n\t",
+            "[--debug DebugLevel]\n\n",
    "+ means you can specify this option multiple times to cover multiple\n",
    "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
    "through with a 4KB block size and then again with a 8KB block size.\n",
@@ -67,7 +67,7 @@ my $rwrite_mbytes; my $rwrite_time; my $rwrite_utime; my $rwrite_stime;
 my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
-my $identifier;    my $debug;
+my $identifier;    my $debug;       my $dump;         my $progress;
 
 # option parsing
 GetOptions("dir=s@",\@dirs,
@@ -79,17 +79,19 @@ GetOptions("dir=s@",\@dirs,
            "help",\$help,
            "nofrag",\$nofrag,
            "debug=i",\$debug,
+           "dump",\$dump,
+           "progress",\$progress,
            "threads=i@",\@threads);
 
 &usage if $help || $Getopt::Long::error;
 
-# give some default values
+### DEFAULT VALUES
 $num_runs=1 unless $num_runs && $num_runs > 0;
 @dirs=qw(.) unless @dirs;
 @blocks=qw(4096) unless @blocks;
 @threads=qw(1 2 4 8) unless @threads;
 $random_ops=4000 unless $random_ops;
-$identifier=`uname -r` unless $identifier;
+chomp($identifier=`uname -r`) unless $identifier;
 $debug=0 unless $debug;
 unless(@sizes) { # try to be a little smart about file size when possible
    my $mem_size; my @stat_ret;
@@ -132,6 +134,26 @@ $identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}
 .
 
 
+                 
+my $total_runs; 
+my $total_runs_completed; 
+my $progressbar;
+
+if ($progress) {
+   $total_runs = $num_runs    *
+                 scalar(@dirs) * 
+                 scalar(@sizes) * 
+                 scalar(@blocks) * 
+                 scalar(@threads);
+   $total_runs_completed = 0;
+
+   require Term::ProgressBar;
+   $progressbar = Term::ProgressBar->new({name  => 'tiotest runs',
+                                          count => $total_runs,
+                                          ETA   => 'linear', 
+                                         });
+}
+
 # run all the possible combinations/permutations/whatever
 foreach $dir (@dirs) {
    foreach $size (@sizes) {
@@ -144,8 +166,6 @@ foreach $dir (@dirs) {
             $run_string .= " -W" if $nofrag;
             $run_string .= " -D $debug" if $debug > 0;
             foreach $run_number (1..$num_runs) {
-               my $prompt="Run #$run_number: $run_string";
-               print STDERR $prompt;
                open(TIOTEST,"$run_string |") or die "Could not run $tiotest";
 
                while(<TIOTEST>) {
@@ -161,7 +181,7 @@ foreach $dir (@dirs) {
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
                }
                close(TIOTEST);
-               print STDERR "" x length($prompt); # erase prompt
+               $progressbar->update(++$total_runs_completed) if $progress;
             }
             for my $field ('read','rread','write','rwrite') {
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
@@ -179,7 +199,12 @@ foreach $dir (@dirs) {
       }
    }
 }
-print STDERR "\n"; # look nicer for redir'd stdout
+
+if ($dump) {
+   require Data::Dumper;
+   print Data::Dumper->Dump([\%stat_data], [qw(stat_data)]);
+   exit(0);
+}
 
 # report summary
 print "
