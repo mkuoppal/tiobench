@@ -56,6 +56,7 @@ install:
 	fi;
 	$(INSTALL) tiotest $(BINDIR)
 	$(INSTALL) tiobench.pl $(BINDIR)
+	$(INSTALL) tiosum.pl $(BINDIR)
 	$(INSTALL) README $(DOCDIR)
 	$(INSTALL) BUGS $(DOCDIR)
 	$(INSTALL) COPYING $(DOCDIR)
@@ -65,5 +66,6 @@ install:
 uninstall:
 	rm -f $(BINDIR)/tiotest
 	rm -f $(BINDIR)/tiobench.pl
+	rm -f $(BINDIR)/tiosum.pl
 	rm -rf $(DOCDIR)
 
