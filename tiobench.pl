@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-#    Author: James Manning <jmm@computer.org>
+#    Author: James Manning <jmm@users.sf.net>
 #       This software may be used and distributed according to the terms of
 #       the GNU General Public License, http://www.gnu.org/copyleft/gpl.html
 #
