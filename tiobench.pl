@@ -45,22 +45,11 @@ foreach my $place (@tiotest_places) {
 }
 
 if (! -x $tiotest) {
-   print "tiotest program not found in any of the following places:\n\n",
-      join(' ',@tiotest_places),"\n\n";
-   if( -f 'tiotest.c') {
-      print "tiotest.c found in pwd, trying to build tiotest with make\n";
-      system("make"); $tiotest = './tiotest';
-      if(-x $tiotest) {
-         print "... tiotest successfully built, continuing\n";
-      } else {
-         print "... attempt failed, exiting\n";
-         exit(1);
-      }
-   } else {
-      print "copy tiotest to one of the listed locations or modify ",
-            "this perl script's \@tiotest_places array\n";
-      exit(1);
-   }
+    print "tiotest program not found in any of the following places:\n\n",
+          join(' ',@tiotest_places),"\n\n",
+          "copy it to one of them or modify this perl script's ",
+          "\@tiotest_places array\n";
+    exit(1);
 }
 
 # variables
@@ -94,23 +83,14 @@ $num_runs=1 unless $num_runs && $num_runs > 0;
 $random_ops=4000 unless $random_ops;
 unless(@sizes) { # try to be a little smart about file size when possible
    my $mem_size; my @stat_ret;
-   print "No size given, autodetecting memory size";
    if(@stat_ret = stat("/proc/kcore")) {
       $mem_size=int($stat_ret[7]/(1024*1024));
-      print "...using /proc/kcore size of $mem_size";
-   } elsif (system("getconf") == 512) { 
-      $mem_size=qx/getconf PAGE_SIZE/ * qx/getconf _PHYS_PAGES/ / 1024 / 1024;
-      print "...nothing good found, using default of $mem_size";
-   } else { 
-      $mem_size=256;
-      print "...nothing good found, using default of $mem_size";
-   }           # default in case no kcore
-   my $use_size=4*($mem_size);         # try to use at least twice memory
-   if($use_size < 200) {print "...clamping up to 200 MB"; $use_size=200; }
-   if($use_size > 2000) {print "...clamping down to 2000 MB"; $use_size=2000; }
-   $use_size=2000 if($use_size > 2000); # max
+   } else { $mem_size=256; }           # default in case no kcore
+   my $use_size=2*($mem_size);         # try to use at least twice memory
+   $use_size=200  if $use_size < 200;  # min
+   $use_size=2000 if $use_size > 2000; # max
    @sizes=($use_size);
-   print "\n";
+   print "No size specified, using $use_size MB\n";
 }
 
 # setup the reporting stuff for fancy output

@@ -143,5 +143,12 @@
 
 	* 0.3.1 - added load balancing feature for test directories
 	contributed by David_Major@btc.adaptec.com
+	
+2001-01-25       Vladislav Bolkhovitine <vlad@sw.com.sg>
+
+	* 0.3.2 - added latency measurements with small statistical
+	processing, raw (/dev/raw??) devices support, sync threads on running 
+	(thread creation overhead time is removed from measured time) +
+	some minor changes (O_SYNC support, extended command line, etc.)
 
 	

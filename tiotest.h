@@ -34,7 +34,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
 
@@ -43,6 +45,7 @@
 #include <sys/times.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/mman.h>
 
 #ifdef LARGEFILES
 #ifndef _LFS64_LARGEFILE
@@ -58,14 +61,18 @@
 #include <getopt.h>
 #endif
 
-#ifdef USE_MMAP
-#include <sys/mman.h>
-#endif
+#define TESTS_COUNT            4
+
+#define DEFAULT_DEBUG_LEVEL    0
+
+#define LATENCY_STAT1          2
+#define LATENCY_STAT2          10
 
 #define MAX_PATHS              50
 
 #define KBYTE                  1024
 #define MBYTE                  (1024*KBYTE)
+#define PAGE_SIZE              (4096)
 
 #define DEFAULT_FILESIZE       (10) /* In Megs !!! */
 #define DEFAULT_THREADS        4
@@ -78,8 +85,10 @@
 
 #ifdef LARGEFILES
 typedef off64_t toff_t;
+#define tlseek	lseek64
 #else
 typedef off_t   toff_t;
+#define tlseek	lseek
 #endif
 
 typedef struct {
@@ -93,12 +102,18 @@ typedef struct {
 } Timings;
 
 typedef struct {
+	double avg, max;
+	int count, count1, count2;
+} Latencies;
+
+typedef struct {
 
 	pthread_t        thread;
 	pthread_attr_t   thread_attr;
     
 	char             fileName[KBYTE];
 	toff_t           fileSizeInMBytes;
+	toff_t           fileOffset;
 	unsigned long    numRandomOps;
 
 	unsigned long    blockSize;
@@ -109,15 +124,19 @@ typedef struct {
 
 	unsigned long    blocksWritten;
 	Timings          writeTimings;
+	Latencies	 writeLatency;
 
 	unsigned long    blocksRandomWritten;
 	Timings          randomWriteTimings;
+	Latencies	 randomWriteLatency;
 
 	unsigned long    blocksRead;
 	Timings          readTimings;
+	Latencies	 readLatency;
 
 	unsigned long    blocksRandomRead;
 	Timings          randomReadTimings;
+	Latencies	 randomReadLatency;
 
 } ThreadData;
 
@@ -144,7 +163,15 @@ typedef struct {
 	int      verbose;
 	int      terse;
 	int      sequentialWriting;
+	int      syncWriting;
+	int	 rawDrives;
 	int      consistencyCheckData;
+	int      showLatency;
+	
+	int	 testsToRun[TESTS_COUNT];
+	int	 runRandomWrite;
+	int	 runRead;
+	int	 runRandomRead;
 
 	/*
 	  Debug level
@@ -156,15 +183,16 @@ typedef struct {
 
 void    print_help_and_exit();
 
-void*   do_write_test( void *data );
-void*   do_read_test( void *data );
-void*   do_random_read_test( void *data );
-void*   do_random_write_test( void *data );
+void*   do_write_test( ThreadData *d );
+void*   do_read_test( ThreadData *d );
+void*   do_random_read_test( ThreadData *d );
+void*   do_random_write_test( ThreadData *d );
 
 void    initialize_test( ThreadTest *d  );
 
 void    cleanup_test( ThreadTest *d );
-void    start_test_threads( ThreadTest *test, int testCase, int sequentially );
+void 	do_test( ThreadTest *test, int testCase, int sequential,
+		Timings *t, char *debugMessage );
 void    print_results( ThreadTest *threadTest );
 void    do_tests( ThreadTest *d );
 
@@ -182,14 +210,14 @@ inline const toff_t get_random_offset(const toff_t filesize, unsigned int *seed)
 
 void    parse_args( ArgumentOptions* args, int argc, char *argv[] );
 
-typedef void*(*TestFunc)(void *);
+typedef void*(*TestFunc)(ThreadData *);
 
 #define WRITE_TEST         0
 #define RANDOM_WRITE_TEST  1
 #define READ_TEST          2
 #define RANDOM_READ_TEST   3
 
-TestFunc Tests[] = { 
+TestFunc Tests[TESTS_COUNT+1] = { 
     do_write_test, 
     do_random_write_test, 
     do_read_test, 

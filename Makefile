@@ -4,14 +4,16 @@ CC=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
 CFLAGS=-O2 -Wall
 
-#DEFINES=-DUSE_MMAP -DUSE_MADVISE
+#DEFINES=-DUSE_MMAP 
+#-DUSE_MADVISE
 
 # This enables support for 64bit file offsets, allowing
 # possibility to test with files larger than (2^31) bytes.
 
 #DEFINES=-DLARGEFILES
 
-DEFINES=
+#DEFINES=
+
 LINK=gcc
 EXE=tiotest
 PROJECT=tiobench

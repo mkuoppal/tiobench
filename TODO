@@ -1,7 +1,5 @@
 - man page
 - lots of testing of new features, most notably -DLARGEFILES
-- thread creation overhead time should be removed from measured time.
-  this however is rather small if there are not lots of threads.
 - add rewrite test 
 - add option to select which tests you want to run with logic
   which are the essential ones to run also to reach. ie if you want
