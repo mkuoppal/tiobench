@@ -1,9 +1,9 @@
 Tiobench and tiotest
    
 Threaded I/O bench for Linux (or any *nix system with POSIX threads
-support library) Author can be reached at: miku@iki.fi
+support library) Author can be reached at: miku at iki.fi
 
-Copyright (C) 1999-2002 Mika Kuoppala
+Copyright (C) 1999-2003 Mika Kuoppala
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -33,18 +33,18 @@ Installation:
 
 Credits:
 	
-	James Manning <jmm@users.sf.net> wrote tiobench.pl
+	James Manning <jmm at users.sf.net> wrote tiobench.pl
 	and also provided several fixes and improvements to 
 	other parts of the tiobench project as a whole. He also has
 	relentlessly fixed typos and Mika's misspellings 
 	everywhere.
 
-	Jakob Østergaard <jakob@ostenfeld.dk> proposed fsync
+	Jakob Østergaard <jakob at ostenfeld.dk> proposed fsync
 	fix, and option for sequential writing to prevent
 	file fragmentation.
 
-	Sami Korhonen <sjkorhon@cc.hut.fi> noticed
+	Sami Korhonen <sjkorhon at cc.hut.fi> noticed
 	thread_attr not initialized bug.
 
 	Numerous other contributions from fearless benchmarkers,
-    see ChangeLog for details.
+    	see ChangeLog for details.

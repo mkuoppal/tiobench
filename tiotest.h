@@ -1,7 +1,7 @@
 /*
  *    Threaded io test
  *
- *  Copyright (C) 1999-2000 Mika Kuoppala <miku@iki.fi>
+ *  Copyright (C) 1999-2000 Mika Kuoppala <miku at iki.fi>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by

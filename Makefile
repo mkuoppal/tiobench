@@ -14,6 +14,10 @@ CFLAGS=-O2 -Wall
 
 #DEFINES=
 
+# This define is for Solaris and others where getrusage returns 
+# in process scope despite of threads
+# DEFINES=-DGETRUSAGE_PROCESS_SCOPE
+
 LINK=gcc
 EXE=tiotest
 PROJECT=tiobench

@@ -1,7 +1,7 @@
 /*
  *    Threaded io test
  *
- *  Copyright (C) 1999-2000 Mika Kuoppala <miku@iki.fi>
+ *  Copyright (C) 1999-2000 Mika Kuoppala <miku at iki.fi>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
 #include "tiotest.h"
 #include "crc32.h"
 
-static const char* versionStr = "tiotest v0.3.3 (C) 1999-2002 Mika Kuoppala <miku@iki.fi>";
+static const char* versionStr = "tiotest v0.3.4 (C) 1999-2003 Mika Kuoppala <miku at iki.fi>";
 
 static ArgumentOptions args;
 
@@ -746,6 +746,29 @@ void print_results( ThreadTest *d )
 	realtime_rwrite = timer_realtime( &(d->totalTimeRandomWrite) );
 	realtime_read   = timer_realtime( &(d->totalTimeRead) );
 	realtime_rread  = timer_realtime( &(d->totalTimeRandomRead) );
+
+#ifdef GETRUSAGE_PROCESS_SCOPE
+	/* This means that rusage returns stuff in process scope and 
+	 * there is no way to get per thread usage
+	 * If i could get account to some Solaris machine I might
+	 * be able to fix this accordingly and not code these
+     * ugly hacks
+	 */
+
+	usrtime_write = timer_usertime( &(d->totalTimeWrite) );
+	systime_write = timer_systime( &(d->totalTimeWrite) ); 
+	
+	usrtime_rwrite = timer_usertime( &(d->totalTimeRandomWrite) );
+	systime_rwrite = timer_systime( &(d->totalTimeRandomWrite) );
+
+	usrtime_read = timer_usertime( &(d->totalTimeRead) );
+	systime_read = timer_systime( &(d->totalTimeRead) );
+
+	
+	usrtime_rread = timer_usertime( &(d->totalTimeRandomRead) );
+	systime_rread = timer_systime( &(d->totalTimeRandomRead) ); 
+
+#endif
 
 	if(args.terse)
 	{
