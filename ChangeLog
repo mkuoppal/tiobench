@@ -155,3 +155,4 @@
 
 	* 0.3.3 - fixed sequential writing + added some input parameters
 	check + added -o and -O options for raw devices.
+	

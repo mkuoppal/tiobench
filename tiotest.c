@@ -448,17 +448,15 @@ typedef struct
 	volatile int *child_status;
 	TestFunc fn;
 	ThreadData *d;
+	volatile int *pstart;
 } StartData;
 
 void* start_proc( void *data )
 {
 	StartData *sd = (StartData*)data;
-	/* make sure child_status is a valid memory location before
-	   writing and reading it */
-	if(sd->child_status != NULL) {
-		*(sd->child_status) = getpid();
-		while (*sd->child_status) sleep(0);
-	}
+	*sd->child_status = getpid();
+	if (sd->pstart != NULL)
+		while (*sd->pstart == 0) sleep(0);
 	return sd->fn(sd->d);
 }
 
@@ -469,30 +467,35 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 	volatile int *child_status;
 	StartData *sd;
 	int synccount;
-	volatile int start = 0; // still needed?
+	volatile int start = 0;
 	
 	child_status = (volatile int *)calloc(test->numThreads, sizeof(int));
-	if (child_status == NULL) {
+	if (child_status == NULL) 
+	{
 		perror("Error allocating memory");
 		return;
 	}
 	
 	sd = (StartData*)calloc(test->numThreads, sizeof(StartData));
-	if (sd == NULL) {
+	if (sd == NULL) 
+	{
 		perror("Error allocating memory");
 		free((int*)child_status);
 		return;
 	}
+	
+	if (sequential)
+		timer_start(t);
 	
 	for(i = 0; i < test->numThreads; i++)
 	{
 		sd[i].child_status = &child_status[i];
 		sd[i].fn = Tests[testCase];
 		sd[i].d = &test->threads[i];
-		if(sequential)
-			sd[i].child_status = NULL;
+		if (sequential)
+			sd[i].pstart = NULL;
 		else
-			sd[i].child_status = &start;
+			sd[i].pstart = &start;
 		if( pthread_create(
 			&(test->threads[i].thread), 
 			&(test->threads[i].thread_attr), 
@@ -500,6 +503,8 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 			(void *)&sd[i]))
 		{
 			perror("Error creating threads");
+			free((int*)child_status);
+			free(sd);
 			exit(-1);
 		}
 
@@ -515,12 +520,14 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 		}
 	}
 	
-	if(sequential)
+	if(sequential) 
 		timer_stop(t);
-	else {
+	else 
+	{
 		struct timeval tv1, tv2;
 		gettimeofday(&tv1, NULL);
-		do {
+		do 
+		{
 			synccount = 0;
 			for(i = 0; i < test->numThreads; i++) 
 				if (child_status[i]) 
@@ -531,7 +538,8 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 			gettimeofday(&tv2, NULL);
 		} while ((tv2.tv_sec - tv1.tv_sec) < 30);
 
-		if (synccount != test->numThreads) {
+		if (synccount != test->numThreads) 
+		{
 			printf("Unable to start %d threads (started %d)\n", 
 				test->numThreads, synccount);
 			start = 1;
@@ -547,13 +555,13 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 			fprintf(stderr, debugMessage);
 			fflush(stderr);
 		}
-		
+	
 		timer_start(t);
 
 		start = 1;
-
+    
 		wait_for_threads(test);
-	    
+    
 		timer_stop(t);
 	}
 	free((int*)child_status);
@@ -780,43 +788,6 @@ void print_results( ThreadTest *d )
 	read_rate  = mbytesRead / realtime_read;
 	random_read_rate  = mbytesRandomRead / realtime_rread;
 
-	if (args.showLatency)
-	{
-		printf("Tiotest latency results:\n");
-	
-		printf(",-------------------------------------------------------------------------.\n");
-		printf("| Item         | Average latency | Maximum latency | %% >%d sec | %% >%d sec |\n", 
-			LATENCY_STAT1, LATENCY_STAT2);
-		printf("+--------------+-----------------+-----------------+----------+-----------+\n");
-    
-		if(totalBlocksWrite)
-			printf("| Write        | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
-			       avgWriteLat*1000, maxWriteLat*1000, perc1WriteLat,
-			       perc2WriteLat);
-
-		if(totalBlocksRandomWrite)
-			printf("| Random Write | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
-			       avgRWriteLat*1000, maxRWriteLat*1000, perc1RWriteLat,
-			       perc2RWriteLat);
-    
-		if(totalBlocksRead)
-			printf("| Read         | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
-			       avgReadLat*1000, maxReadLat*1000, perc1ReadLat,
-			       perc2ReadLat);
-    
-		if(totalBlocksRandomRead)
-			printf("| Random Read  | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
-			       avgRReadLat*1000, maxRReadLat*1000, perc1RReadLat,
-			       perc2RReadLat);
-
-		printf("|--------------+-----------------+-----------------+----------+-----------|\n");
-
-		printf("| Total        | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
-		       avgLat*1000, maxLat*1000, perc1Lat, perc2Lat);
-
-		printf("`--------------+-----------------+-----------------+----------+-----------'\n\n");
-	}
-
 	printf("Tiotest results for %d concurrent io threads:\n", 
 	       d->numThreads);
 	
@@ -856,6 +827,42 @@ void print_results( ThreadTest *d )
 
 	printf("`----------------------------------------------------------------------'\n");
 	
+	if (args.showLatency)
+	{
+		printf("Tiotest latency results:\n");
+	
+		printf(",-------------------------------------------------------------------------.\n");
+		printf("| Item         | Average latency | Maximum latency | %% >%d sec | %% >%d sec |\n", 
+			LATENCY_STAT1, LATENCY_STAT2);
+		printf("+--------------+-----------------+-----------------+----------+-----------+\n");
+    
+		if(totalBlocksWrite)
+			printf("| Write        | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
+			       avgWriteLat*1000, maxWriteLat*1000, perc1WriteLat,
+			       perc2WriteLat);
+
+		if(totalBlocksRandomWrite)
+			printf("| Random Write | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
+			       avgRWriteLat*1000, maxRWriteLat*1000, perc1RWriteLat,
+			       perc2RWriteLat);
+    
+		if(totalBlocksRead)
+			printf("| Read         | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
+			       avgReadLat*1000, maxReadLat*1000, perc1ReadLat,
+			       perc2ReadLat);
+    
+		if(totalBlocksRandomRead)
+			printf("| Random Read  | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
+			       avgRReadLat*1000, maxRReadLat*1000, perc1RReadLat,
+			       perc2RReadLat);
+
+		printf("|--------------+-----------------+-----------------+----------+-----------|\n");
+
+		printf("| Total        | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
+		       avgLat*1000, maxLat*1000, perc1Lat, perc2Lat);
+
+		printf("`--------------+-----------------+-----------------+----------+-----------'\n\n");
+	}
 }
 
 void report_seek_error(toff_t offset, unsigned long wr)
