@@ -134,10 +134,9 @@ foreach $dir (@dirs) {
    foreach $size (@sizes) {
       foreach $block (@blocks) {
          foreach $thread (@threads) {
-            my $thread_rand=int($random_ops/$thread);
             my $thread_size=int($size/$thread); $thread_size=1 if $thread_size==0;
             my $run_string = "$tiotest -t $thread -f $thread_size ".
-                             "-r $thread_rand -b $block -d $dir -T";
+                             "-r $random_ops -b $block -d $dir -T";
             $run_string .= " -W" if $nofrag;
             foreach $run_number (1..$num_runs) {
                my $prompt="Run #$run_number: $run_string";
