@@ -4,13 +4,15 @@ CC=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
 CFLAGS=-O2 -Wall
 
+# This enables support for 64bit file offsets, allowing
+# possibility to test with files larger than (2^31-1) bytes.
+
+DEFINES=-DLARGEFILES -DUSE_MMAP -DUSE_MADVISE
+
+#DEFINES=-DLARGEFILES
 #DEFINES=-DUSE_MMAP 
 #-DUSE_MADVISE
 
-# This enables support for 64bit file offsets, allowing
-# possibility to test with files larger than (2^31) bytes.
-
-#DEFINES=-DLARGEFILES
 
 #DEFINES=
 

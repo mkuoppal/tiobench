@@ -14,28 +14,6 @@ use Getopt::Long;
 
 $|=1; # give output ASAP
 
-sub usage {
-   print "Usage: $0 [<options>]\n","Available options:\n\t",
-            "[--help] (this help text)\n\t",
-            "[--identifier IdentString] (use IdentString as identifier in output)\n\t",
-            "[--nofrag] (don't write fragmented files)\n\t",
-            "[--size SizeInMB]+\n\t",
-            "[--numruns NumberOfRuns]\n\t",
-            "[--dir TestDir]+\n\t",
-            "[--block BlkSizeInBytes]+\n\t",
-            "[--random NumberRandOpsAllThreads]+\n\t",
-            "[--threads NumberOfThreads]+\n\t",
-            "[--dump] (dump in Data::Dumper format, no report)\n\t",
-            "[--progress] (monitor progress with Term::ProgressBar)\n\t",
-            "[--timeout TimeoutInSeconds]\n\t",
-            "[--debug DebugLevel]\n\n",
-   "+ means you can specify this option multiple times to cover multiple\n",
-   "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
-   "through with a 4KB block size and then again with a 8KB block size.\n",
-   "--numruns specifies over how many runs each test should be averaged\n";
-   exit(1);
-}
-
 # look around for tiotest in different places
 my @tiotest_places=(
    '.',                      # current directory
@@ -58,7 +36,22 @@ if (! -x $tiotest) {
     exit(1);
 }
 
-# variables
+### CONSTANTS
+# sizes
+my $KB = 1024;
+my $MB = 1024 * 1024;
+my $GB = 1024 * 1024 * 1024;
+
+# debug levels, ala log4j and jakarta commons logging
+my $LEVEL_NONE  = 0;
+my $LEVEL_FATAL = 10;
+my $LEVEL_ERROR = 20;
+my $LEVEL_WARN  = 30;
+my $LEVEL_INFO  = 40;
+my $LEVEL_DEBUG = 50;
+my $LEVEL_TRACE = 60;
+
+### VARIABLES
 my @sizes;       my $size;      my @dirs;    my $dir;
 my @blocks;      my $block;     my @threads; my $thread;
 my $random_ops;  my %stat_data; my $area;    my $mem_size;
@@ -97,17 +90,19 @@ $num_runs=1 unless $num_runs && $num_runs > 0;
 @threads=qw(1 2 4 8) unless @threads;
 $random_ops=4000 unless $random_ops;
 chomp($identifier=`uname -r`) unless $identifier;
-$debug=0 unless $debug;
+$debug=$LEVEL_NONE unless defined($debug);
 unless(@sizes) { # try to be a little smart about file size when possible
-   my $mem_size; my @stat_ret;
-   if(@stat_ret = stat("/proc/kcore")) {
-      $mem_size=int($stat_ret[7]/(1024*1024));
-   } else { $mem_size=256; }           # default in case no kcore
+   my $mem_size = &get_memory_size();
+   $mem_size = int($mem_size/$MB); # convert to MB
    my $use_size=2*($mem_size);         # try to use at least twice memory
-   $use_size=200  if $use_size < 200;  # min
-   $use_size=2000 if $use_size > 2000; # max
+
+   # used to cap the value between 200 MB and about 2 GB
+   #$use_size=200  if $use_size < 200;  # min
+   #$use_size=2000 if $use_size > 2000; # max
+
    @sizes=($use_size);
-   print "No size specified, using $use_size MB\n";
+   print "No size specified, using $use_size MB\n"
+      if $debug >= $LEVEL_INFO;
 }
 
 # setup the reporting stuff for fancy output
@@ -172,11 +167,15 @@ foreach $dir (@dirs) {
             $run_string .= " -W" if $nofrag;
             $run_string .= " -D $debug" if $debug > 0;
             foreach $run_number (1..$num_runs) {
+               print "Running: $run_string\n"
+                  if $debug >= $LEVEL_INFO;
                open(TIOTEST,"$run_string |") or die "Could not run $tiotest";
 
-               while(<TIOTEST>) {
-                  next if /^total/o; # this may be useful, but it's been ignored up to this point.
-                  my ($field,$amount,$time,$utime,$stime,$avglat,$maxlat,$pct_gt_2_sec,$pct_gt_10_sec)=split(/[:,]/);
+               while(my $line = <TIOTEST>) {
+                  next if $line =~ /^total/o; # this may be useful, but it's been ignored up to this point.
+                  print "Processing output line of $line"
+                     if $debug >= $LEVEL_INFO;
+                  my ($field,$amount,$time,$utime,$stime,$avglat,$maxlat,$pct_gt_2_sec,$pct_gt_10_sec)=split(/[:,]/, $line);
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} += $amount;
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'}   += $time;
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'}  += $utime;
@@ -246,5 +245,67 @@ foreach my $title ('SEQ_READS', 'RAND_READS', 'SEQ_WRITES', 'RAND_WRITES') {
             write if defined($stat_data{$identifier}{$thread}{$size}{$block});
          }
       }
+   }
+}
+
+###########################################
+######### Utility subroutines #############
+###########################################
+
+sub usage {
+   print "Usage: $0 [<options>]\n","Available options:\n\t",
+            "[--help] (this help text)\n\t",
+            "[--identifier IdentString] (use IdentString as identifier in output)\n\t",
+            "[--nofrag] (don't write fragmented files)\n\t",
+            "[--size SizeInMB]+\n\t",
+            "[--numruns NumberOfRuns]\n\t",
+            "[--dir TestDir]+\n\t",
+            "[--block BlkSizeInBytes]+\n\t",
+            "[--random NumberRandOpsAllThreads]+\n\t",
+            "[--threads NumberOfThreads]+\n\t",
+            "[--dump] (dump in Data::Dumper format, no report)\n\t",
+            "[--progress] (monitor progress with Term::ProgressBar)\n\t",
+            "[--timeout TimeoutInSeconds]\n\t",
+            "[--debug DebugLevel]\n\n",
+   "+ means you can specify this option multiple times to cover multiple\n",
+   "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
+   "through with a 4KB block size and then again with a 8KB block size.\n",
+   "\n",
+   "--numruns specifies over how many runs each test combination of\n",
+   "parameters should be averaged\n";
+   exit(1);
+}
+
+# sub to try various methods to get the amount of memory of this machine
+# returned value is in bytes
+sub get_memory_size {
+   my $mem_size; my @stat_ret;
+   # first try /proc/meminfo if it's around and readable
+   if(-r '/proc/meminfo') {
+      open(MEMINFO,'/proc/meminfo') or die 'Error opening /proc/meminfo';
+      my $line = (grep {/MemTotal:/} <MEMINFO>)[0];
+      close(MEMINFO);
+      print "Fetched line from /proc/meminfo of $line"
+         if $debug >= $LEVEL_TRACE;
+      my (undef, $amt, $unit) = split(/\s+/, $line);
+      if    ($unit =~ /^kb$/i) { $amt *= $KB; }
+      elsif ($unit =~ /^mb$/i) { $amt *= $MB; }
+      elsif ($unit =~ /^gb$/i) { $amt *= $GB; }
+      else { die "Do not understand the units in /proc/meminfo of $unit"; }
+      print "Found memory size of $amt bytes from /proc/meminfo\n"
+         if $debug >= $LEVEL_DEBUG;
+      return $amt;
+   # then try the size of /proc/kcore if that's available
+   } elsif(-s '/proc/kcore') {
+      my @stat_ret = stat("/proc/kcore");
+      my $amt = $stat_ret[7];
+      print "Found memory size of $amt bytes from size of /proc/kcore\n"
+         if $debug >= $LEVEL_DEBUG;
+      return $amt;
+   # nothing else worked, just pick a default of 256 MB
+   } else { 
+      print "Cannot figure out memory size, going with 256 MB\n"
+         if $debug >= $LEVEL_DEBUG;
+      return 256*$MB;
    }
 }

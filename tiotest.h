@@ -54,17 +54,22 @@
 #endif
 #endif
 
-#if (LARGEFILES && USE_MMAP)
-#warning "LARGEFILES and USE_MMAP might not work on 32bit architectures!"
-#endif
-
 #ifdef LONG_OPTIONS
 #include <getopt.h>
 #endif
 
 #define TESTS_COUNT            4
 
-#define DEFAULT_DEBUG_LEVEL    0
+/* should be in sync with perl script */
+#define LEVEL_NONE             0
+#define LEVEL_FATAL            10
+#define LEVEL_ERROR            20
+#define LEVEL_WARN             30
+#define LEVEL_INFO             40
+#define LEVEL_DEBUG            50
+#define LEVEL_TRACE            60
+
+#define DEFAULT_DEBUG_LEVEL    (LEVEL_NONE)
 
 #define LATENCY_STAT1          2
 #define LATENCY_STAT2          10
@@ -88,9 +93,10 @@
 #ifdef LARGEFILES
 typedef off64_t toff_t;
 #define tlseek	lseek64
+#define tmmap	mmap64
 #else
 typedef off_t   toff_t;
-#define tlseek	lseek
+#define tmmap	mmap
 #endif
 
 typedef struct {
@@ -164,6 +170,7 @@ typedef struct {
 	int      numRandomOps;
 	int      verbose;
 	int      terse;
+	int      use_mmap;
 	int      sequentialWriting;
 	int      syncWriting;
 	int	     rawDrives;

@@ -23,14 +23,14 @@
 #include "tiotest.h"
 #include "crc32.h"
 
-static const char* versionStr = "tiotest v0.3.4 (C) 1999-2003 Mika Kuoppala <miku at iki.fi>";
+static const char* versionStr = "tiotest v0.3.5 (C) 1999-2003 tiobench team <http://tiobench.sf.net/>";
 
 static ArgumentOptions args;
 
 static void * aligned_alloc(const ssize_t size)
 {
 	caddr_t a;
-	a = mmap((caddr_t )0, size, 
+	a = tmmap((caddr_t )0, size, 
 		 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 	if (a == MAP_FAILED)
 		return NULL;
@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
 	args.debugLevel = DEFAULT_DEBUG_LEVEL;
 	args.verbose = 0;
 	args.terse = 0;
+	args.use_mmap = 0;
 	args.consistencyCheckData = 0;
 	args.syncWriting = 0;
 	args.rawDrives = 0;
@@ -66,10 +67,6 @@ int main(int argc, char *argv[])
 	for(i = 0; i < TESTS_COUNT; i++)
 		args.testsToRun[i] = 1;
 	
-#if (LARGEFILES && USE_MMAP)
-	printf("warning: LARGEFILES with MMAP needs mmap64 support which is not working yet in tiotest!\n");
-#endif
-
 	parse_args( &args, argc, argv );
     
 	initialize_test( &test );
@@ -88,7 +85,7 @@ static void checkValidFileSize(const int value)
 #ifndef LARGEFILES
 	if (value > MAXINT / (1024*1024)) 
 	{
-		printf("Specified file size too large, please specify something under 2GB\n");
+		fprintf(stderr, "Specified file size too large, please specify something under 2GB\n");
 		exit(1);
 	}
 #endif
@@ -98,8 +95,8 @@ static void checkIntZero(const int value, const char* const mess)
 {
 	if (value <= 0) 
 	{
-		printf(mess);
-		printf("Try 'tiotest -h' for more information.\n");
+		fprintf(stderr, mess);
+		fprintf(stderr, "Try 'tiotest -h' for more information.\n");
 		exit(1);
 	}
 }
@@ -108,8 +105,8 @@ static void checkLong(const long value, const char* const mess)
 {
 	if (value < 0)
 	{
-		printf(mess);
-		printf("Try 'tiotest -h' for more information\n");
+		fprintf(stderr, mess);
+		fprintf(stderr, "Try 'tiotest -h' for more information\n");
 		exit(1);
 	}
 }
@@ -169,6 +166,10 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 				args->terse = TRUE;
 				break;
 
+			case 'M':
+				args->use_mmap = TRUE;
+				break;
+
 			case 'W':
 				args->sequentialWriting = TRUE;
 				break;
@@ -211,12 +212,12 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 					break;
 				}
 				else
-					printf("Wrong test number %d\n", i);
+					fprintf(stderr, "Wrong test number %d\n", i);
 				/* Go through */
 			}
 			case '?':
 			default:
-				printf("Try 'tiotest -h' for more information\n");
+				fprintf(stderr, "Try 'tiotest -h' for more information\n");
 				exit(1);
 				break;
 		}
@@ -364,6 +365,8 @@ void print_help_and_exit()
 	print_option("-R", "Use raw devices. Set device name with -d option", 0);
 
 	print_option("-T", "More terse output", 0);
+
+	print_option("-M", "Use mmap for I/O", 0);
 
 	print_option("-W", "Do writing phase sequentially", 0);
 	
@@ -519,7 +522,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 
 		if(sequential)
 		{
-			if(args.debugLevel > 2)
+			if(args.debugLevel >= LEVEL_INFO)
 				fprintf(stderr, 
 						"Waiting previous thread "
 						"to finish before starting "
@@ -549,7 +552,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 
 		if (synccount != test->numThreads) 
 		{
-			printf("Unable to start %d threads (started %d)\n", 
+			fprintf(stderr, "Unable to start %d threads (started %d)\n", 
 			       test->numThreads, synccount);
 			start = 1;
 			wait_for_threads(test);
@@ -558,9 +561,9 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 			return;
 		}
 
-		if(args.debugLevel > 4)
+		if(args.debugLevel >= LEVEL_INFO)
 		{
-			printf("Created %d threads\n", i);
+			fprintf(stderr, "Created %d threads\n", i);
 			fprintf(stderr, debugMessage);
 			fflush(stderr);
 		}
@@ -576,7 +579,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 	free((int*)child_status);
 	free(sd);
     
-	if(args.debugLevel > 4)
+	if(args.debugLevel >= LEVEL_INFO)
 	{
 		fprintf(stderr, "Done!\n");
 		fflush(stderr);
@@ -970,16 +973,22 @@ void* do_write_test( ThreadData *d )
 		return 0;
 	}
 
-	if (args.debugLevel > 1)
+	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, "do_write_test: initial seek %lu\n", d->fileOffset);
+		fprintf(stderr, 
+#ifdef LARGEFILES			
+                                "do_write_test: initial seek %Lu\n", 
+#else				
+                                "do_write_test: initial seek %lu\n", 
+#endif				
+                                d->fileOffset);
 		fflush(stderr);
 	}
 	
 #ifdef USE_MMAP
 	if (!args.rawDrives) 
 		ftruncate(fd,bytesize); /* pre-allocate space */
-	file_loc=mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
+	file_loc=tmmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
 		      d->fileOffset);
 	if(file_loc == MAP_FAILED) 
 	{
@@ -1071,9 +1080,15 @@ void* do_random_write_test( ThreadData *d )
 		return 0;
 	}
 	
-	if (args.debugLevel > 1)
+	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, "do_random_write_test: Initial seek %lu\n", d->fileOffset);
+		fprintf(stderr, 
+#ifdef LARGEFILES			
+                                "do_random_test: initial seek %Lu\n", 
+#else				
+                                "do_random_test: initial seek %lu\n", 
+#endif				
+                                d->fileOffset);
 		fflush(stderr);
 	}
 	
@@ -1093,7 +1108,7 @@ void* do_random_write_test( ThreadData *d )
 		
 		offset = get_random_offset(blocks-1, &seed) * d->blockSize;
 
-		if(args.debugLevel > 10)
+		if(args.debugLevel >= LEVEL_TRACE)
 		{
 			fprintf(stderr, "Thread: %u chose seek of %Lu\n", 
 				(unsigned)getpid(), (long long)offset );
@@ -1163,14 +1178,20 @@ void* do_read_test( ThreadData *d )
 		return 0;
 	}
 	
-	if (args.debugLevel > 1)
+	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, "do_read_test: initial seek %lu\n", d->fileOffset);
+		fprintf(stderr, 
+#ifdef LARGEFILES			
+                                "do_read_test: initial seek %Lu\n", 
+#else				
+                                "do_read_test: initial seek %lu\n", 
+#endif				
+                                d->fileOffset);
 		fflush(stderr);
 	}
 
 #ifdef USE_MMAP
-	file_loc=mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
+	file_loc=tmmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
 	if(file_loc == MAP_FAILED) 
 	{
 		perror("Error mmap()ing file");
@@ -1268,9 +1289,15 @@ void* do_random_read_test( ThreadData *d )
 		return 0;
 	}
 	
-	if (args.debugLevel > 1)
+	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, "do_random_read_test: initial seek %lu\n", d->fileOffset);
+		fprintf(stderr, 
+#ifdef LARGEFILES			
+                                "do_random_read_test: initial seek %Lu\n", 
+#else				
+                                "do_random_read_test: initial seek %lu\n", 
+#endif				
+                                d->fileOffset);
 		fflush(stderr);
 	}
 	
@@ -1291,7 +1318,7 @@ void* do_random_read_test( ThreadData *d )
 		offset = get_random_offset(blocks-1, &seed) * d->blockSize + 
 			d->fileOffset;
 
-		if(args.debugLevel > 10)
+		if(args.debugLevel >= LEVEL_TRACE)
 		{
 			fprintf(stderr, "Thread: %u chose seek of %Lu\n", 
 				(unsigned)getpid(), (long long)offset );

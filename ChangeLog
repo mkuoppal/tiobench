@@ -164,4 +164,7 @@
 
 	* 0.3.4 - getrusage fix for Solaris and othere where getrusage returns stuff
 	in process scope. Linux returns in current thread scope.
-	
+
+2003-11-04       James Manning <jmm at users.sf.net>
+
+	* 0.3.5 - new params for tiobench
