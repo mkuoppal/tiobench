@@ -129,8 +129,7 @@ int main(int argc, char *argv[])
         data = 0;
 
         printf("writing test data chunk (%x) in memory map\n", TEST_DATA2);
-        /* the +1 is 4 bytes ahead thanks to pointer arithmetic */
-        *((int *)file_loc+1) = TEST_DATA2;
+        *((int *)(file_loc+sizeof(data))) = TEST_DATA2;
 
         printf("msync()ing\n");
         rc = msync(file_loc,CHUNK_SIZE,MS_SYNC);
@@ -166,6 +165,7 @@ int main(int argc, char *argv[])
         perror("Error unlink()ing memory area");
         exit(-1);
     }
+
     printf("All large-file operations work fine\n");
     exit(0);
 }
