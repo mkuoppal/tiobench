@@ -80,16 +80,19 @@
 #define xstr(s) str(s)
 #define str(s) #s
 
+/* NOTE: a lot of this could be done with __REDIRECT and unistd.h */
 #ifdef USE_LARGEFILES
-typedef off64_t   TIO_off_t;
-#define TIO_lseek lseek64
-#define TIO_mmap  mmap64
-#define OFFSET_FORMAT "%Lx"
+typedef off64_t        TIO_off_t;
+#define TIO_lseek      lseek64
+#define TIO_mmap       mmap64
+#define TIO_ftruncate  ftruncate64
+#define OFFSET_FORMAT  "%Lx"
 #else
-typedef off_t   TIO_off_t;
-#define TIO_lseek lseek
-#define TIO_mmap  mmap
-#define OFFSET_FORMAT "%lx"
+typedef off_t          TIO_off_t;
+#define TIO_lseek      lseek
+#define TIO_mmap       mmap
+#define TIO_ftruncate  ftruncate
+#define OFFSET_FORMAT  "%lx"
 #endif
 
 typedef struct {
