@@ -7,6 +7,9 @@
 #    Description:
 #       Perl wrapper for calling the tiotest executable multiple times
 #       with varying sets of parameters as instructed
+#
+#     Updated: Randy Hron <rwhron at earthlink dot net>
+#        Added latency results and CPU efficiency calculation.
 
 use strict;
 use Getopt::Long;
@@ -16,6 +19,7 @@ $|=1; # give output ASAP
 sub usage {
    print "Usage: $0 [<options>]\n","Available options:\n\t",
             "[--help] (this help text)\n\t",
+            "[--identifier IdentString] (use IdentString as identifier in output)\n\t",
             "[--nofrag] (don't write fragmented files)\n\t",
             "[--size SizeInMB]+\n\t",
             "[--numruns NumberOfRuns]+\n\t",
@@ -62,9 +66,11 @@ my $rwrite_mbytes; my $rwrite_time; my $rwrite_utime; my $rwrite_stime;
 my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
+my $identifier;
 
 # option parsing
 GetOptions("dir=s@",\@dirs,
+           "identifier=s",\$identifier,
            "size=i@",\@sizes,
            "block=i@",\@blocks,
            "random=i",\$random_ops,
@@ -81,6 +87,7 @@ $num_runs=1 unless $num_runs && $num_runs > 0;
 @blocks=qw(4096) unless @blocks;
 @threads=qw(1 2 4 8) unless @threads;
 $random_ops=4000 unless $random_ops;
+$identifier=`uname -r` unless $identifier;
 unless(@sizes) { # try to be a little smart about file size when possible
    my $mem_size; my @stat_ret;
    if(@stat_ret = stat("/proc/kcore")) {
@@ -94,20 +101,33 @@ unless(@sizes) { # try to be a little smart about file size when possible
 }
 
 # setup the reporting stuff for fancy output
-format REPORT_TOP =
-Size is MB, BlkSz is Bytes, Read, Write, and Seeks are MB/sec
-
-         File   Block  Num  Seq Read    Rand Read   Seq Write  Rand Write
-  Dir    Size   Size   Thr Rate (CPU%) Rate (CPU%) Rate (CPU%) Rate (CPU%)
-------- ------ ------- --- ----------- ----------- ----------- -----------
+format SEQ_READS_TOP =
+                              File  Blk   Num                   Avg      Maximum      Lat%     Lat%    CPU
+Identifier                    Size  Size  Thr   Rate  (CPU%)  Latency    Latency      >2s      >10s    Eff
+---------------------------- ------ ----- ---  ------ ------ --------- -----------  -------- -------- -----
 .
 
-format REPORT =
-@|||||| @||||| @|||||| @|| @>>>> @>>>% @>>>> @>>>% @>>>> @>>>% @>>>> @>>>%
-$dir,$size,$block,$thread,$stat_data{'read'}{'rate'},$stat_data{'read'}{'cpu'},$stat_data{'rread'}{'rate'},$stat_data{'rread'}{'cpu'},$stat_data{'write'}{'rate'},$stat_data{'write'}{'cpu'},$stat_data{'rwrite'}{'rate'},$stat_data{'rwrite'}{'cpu'}
+format SEQ_READS =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @|||| @>>  @##.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+$identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'cpueff'}
 .
 
-$-=0; $~='REPORT'; $^L=''; # reporting variables
+format RAND_READS =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @|||| @>>  @##.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+$identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'cpueff'}
+.
+
+format SEQ_WRITES =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @|||| @>>  @##.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+$identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'cpueff'}
+.
+
+
+format RAND_WRITES =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @|||| @>>  @##.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+$identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'cpueff'}
+.
+
 
 # run all the possible combinations/permutations/whatever
 foreach $dir (@dirs) {
@@ -115,38 +135,75 @@ foreach $dir (@dirs) {
       foreach $block (@blocks) {
          foreach $thread (@threads) {
             my $thread_rand=int($random_ops/$thread);
-            my $thread_size=int($size/$thread);
+            my $thread_size=int($size/$thread); $thread_size=1 if $thread_size==0;
             my $run_string = "$tiotest -t $thread -f $thread_size ".
                              "-r $thread_rand -b $block -d $dir -T";
             $run_string .= " -W" if $nofrag;
             foreach $run_number (1..$num_runs) {
-               #my $prompt="Run #$run_number: $thread threads";
                my $prompt="Run #$run_number: $run_string";
                print STDERR $prompt;
                open(TIOTEST,"$run_string |") or die "Could not run $tiotest";
 
                while(<TIOTEST>) {
-                  my ($field,$amount,$time,$utime,$stime)=split(/[:,]/);
-                  $stat_data{$field}{'amount'} += $amount;
-                  $stat_data{$field}{'time'}   += $time;
-                  $stat_data{$field}{'utime'}  += $utime;
-                  $stat_data{$field}{'stime'}  += $stime;
+                  next if /^total/o; # this may be useful, but it's been ignored up to this point.
+                  my ($field,$amount,$time,$utime,$stime,$avglat,$maxlat,$pct_gt_2_sec,$pct_gt_10_sec)=split(/[:,]/);
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} += $amount;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'}   += $time;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'}  += $utime;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'}  += $stime;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'avglat'} += $avglat;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'maxlat'} += $maxlat;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_2_sec'}  += $pct_gt_2_sec;
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
                }
                close(TIOTEST);
                print STDERR "" x length($prompt); # erase prompt
             }
             for my $field ('read','rread','write','rwrite') {
-               $stat_data{$field}{'rate'} = 
-                  $stat_data{$field}{'amount'} /
-                  $stat_data{$field}{'time'};
-               $stat_data{$field}{'cpu'} = 
-                  100 * ( $stat_data{$field}{'utime'} +
-                  $stat_data{$field}{'stime'} ) / 
-                  $stat_data{$field}{'time'};
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} /
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'} = 
+                  100 * ( $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'} +
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'} ) / 
+                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
+                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
+                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100));
             }
-            write;
          }
       }
    }
 }
 print STDERR "\n"; # look nicer for redir'd stdout
+
+# report summary
+print "
+Unit information
+================
+File size = megabytes
+Blk Size  = bytes
+Rate      = megabytes per second
+CPU%      = percentage of CPU used during the test
+Latency   = milliseconds
+Lat%      = percent of requests that took longer than X seconds
+CPU Eff   = Rate divided by CPU% - throughput per cpu load
+";
+
+my %report;
+$report{'SEQ_READS'}    = "Sequential Reads";
+$report{'RAND_READS'}   = "Random Reads";
+$report{'SEQ_WRITES'}   = "Sequential Writes";
+$report{'RAND_WRITES'}  = "Random Writes";
+
+foreach my $title ('SEQ_READS', 'RAND_READS', 'SEQ_WRITES', 'RAND_WRITES') {
+   $-=0; $~="$title"; $^L=''; # reporting variables
+   print "\n$report{$title}\n";
+   foreach $size (@sizes) {
+      foreach $block (@blocks) {
+         foreach $thread (@threads) {
+            write;
+         }
+      }
+   }
+}
