@@ -83,7 +83,7 @@ typedef off64_t        TIO_off_t;
 #define TIO_ftruncate  ftruncate64
 #define TIO_pread      pread64
 #define TIO_pwrite     pwrite64
-#define OFFSET_FORMAT  "%Lx"
+#define OFFSET_FORMAT  "0x%Lx"
 #else
 typedef off_t          TIO_off_t;
 #define TIO_lseek      lseek
@@ -91,7 +91,7 @@ typedef off_t          TIO_off_t;
 #define TIO_ftruncate  ftruncate
 #define TIO_pread      pread
 #define TIO_pwrite     pwrite
-#define OFFSET_FORMAT  "%lx"
+#define OFFSET_FORMAT  "0x%lx"
 #endif
 
 typedef struct {

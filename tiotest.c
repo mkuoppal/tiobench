@@ -487,6 +487,11 @@ void* start_proc( void *data )
 	return NULL;
 }
 
+void log (int level, char *message) {
+        if(args.debugLevel >= level)
+                fprintf(stderr, "%s\n", message);
+}
+
 void do_test( ThreadTest *test, int testCase, int sequential,
 	      Timings *t, char *debugMessage )
 {
@@ -537,12 +542,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 
 		if(sequential)
 		{
-			if(args.debugLevel >= LEVEL_INFO)
-				fprintf(stderr, 
-						"Waiting previous thread "
-						"to finish before starting "
-						"a new one\n" );
-	    
+			log(LEVEL_INFO,"Waiting previous thread to finish before starting a new one");
 			pthread_join(test->threads[i].thread, NULL);
 		}
 	}
@@ -576,12 +576,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 			return;
 		}
 
-		if(args.debugLevel >= LEVEL_INFO)
-		{
-			fprintf(stderr, "Created %d threads\n", i);
-			fprintf(stderr, debugMessage);
-			fflush(stderr);
-		}
+                log(LEVEL_INFO, "Created threads");
 	
 		timer_start(t);
 
@@ -594,11 +589,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 	free((int*)child_status);
 	free(sd);
     
-	if(args.debugLevel >= LEVEL_INFO)
-	{
-		fprintf(stderr, "Done!\n");
-		fflush(stderr);
-	}
+        log(LEVEL_INFO, "Done!");
 }
 
 void print_results( ThreadTest *d )
@@ -949,11 +940,7 @@ void* do_generic_test(file_io_function io_func, mmap_io_function mmap_func,
 
         /* if doing real files, get them pre-allocated in size */
         if (!args.rawDrives) {
-                if (args.debugLevel >= LEVEL_DEBUG)
-                {
-	                fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
-	                fflush(stderr);
-                }
+                log(LEVEL_DEBUG, "calling " xstr(TIO_ftruncate) "() on file descriptor");
 	        rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
                 if(rc != 0) {
 	                perror(xstr(TIO_ftruncate) "() failed");
@@ -993,7 +980,8 @@ void* do_generic_test(file_io_function io_func, mmap_io_function mmap_func,
 
                         madvise(file_loc, this_chunk_size, madvise_advice);
 
-                        current_loc = file_loc;
+                        //current_loc = file_loc;
+                        current_loc = file_loc - d->blockSize; // back-one hack for sequential case
                         for(chunk_block = 0; chunk_block < this_chunk_blocks; chunk_block++) {
                                 struct timeval tv_start, tv_stop;
 
@@ -1015,7 +1003,8 @@ void* do_generic_test(file_io_function io_func, mmap_io_function mmap_func,
                 /**
                  * REGULAR I/O OPERATIONS
                  */
-                TIO_off_t current_offset = d->fileOffset;
+                //TIO_off_t current_offset = d->fileOffset;
+                TIO_off_t current_offset = d->fileOffset - d->blockSize; // back-one hack for sequential case
                 int i;
 
                 for(i = 0; i < blocks; i++) {
@@ -1062,15 +1051,25 @@ TIO_off_t get_random_offset(TIO_off_t current_offset, ThreadData *d, unsigned in
 // define READ/WRITE operations on file descriptors
 //
 
-void do_pwrite_operation(int fd, TIO_off_t offset, ThreadData *d) {
-        if( TIO_pwrite( fd, d->buffer, d->blockSize, offset ) != d->blockSize ) {
-                perror("Error pwrite()ing to file");
+void do_pread_operation(int fd, TIO_off_t offset, ThreadData *d) {
+        ssize_t rc = TIO_pread( fd, d->buffer, d->blockSize, offset );
+        if( rc != d->blockSize ) {
+                if( rc == -1 ) {
+                        perror("Error " xstr(TIO_pread) "()ing to file");
+                } else {
+                        fprintf(stderr, "Tried to read %ld bytes from offset " OFFSET_FORMAT " of file %s of length " OFFSET_FORMAT ", but only read %d bytes\n", d->blockSize, offset, d->fileName, d->fileSizeInMBytes*MB, rc);
+                }
         }
 }
 
-void do_pread_operation(int fd, TIO_off_t offset, ThreadData *d) {
-        if( TIO_pread( fd, d->buffer, d->blockSize, offset ) != d->blockSize ) {
-                perror("Error pread()ing to file");
+void do_pwrite_operation(int fd, TIO_off_t offset, ThreadData *d) {
+        ssize_t rc = TIO_pwrite( fd, d->buffer, d->blockSize, offset );
+        if( rc  != d->blockSize ) {
+                if( rc == -1 ) {
+                        perror("Error " xstr(TIO_pwrite) "()ing to file");
+                } else {
+                        fprintf(stderr, "Tried to write %ld bytes from offset " OFFSET_FORMAT " of file %s of length " OFFSET_FORMAT ", but only wrote %d bytes\n", d->blockSize, offset, d->fileName, d->fileSizeInMBytes*MB, rc);
+                }
         }
 }
 
@@ -1108,6 +1107,7 @@ void do_mmap_write_operation(void *loc, ThreadData *d) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 void do_read_test( ThreadData *d ) {
+        log(LEVEL_INFO, "Doing sequential read test");
         do_generic_test(do_pread_operation, do_mmap_read_operation, 
                         get_sequential_offset, get_sequential_loc,
                         d, &(d->readTimings), &(d->readLatency),
@@ -1115,6 +1115,7 @@ void do_read_test( ThreadData *d ) {
 }
 
 void do_write_test( ThreadData *d ) {
+        log(LEVEL_INFO, "Doing sequential write test");
         do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
                         get_sequential_offset, get_sequential_loc,
                         d, &(d->writeTimings), &(d->writeLatency),
@@ -1122,6 +1123,7 @@ void do_write_test( ThreadData *d ) {
 }
 
 void do_random_read_test( ThreadData *d ) {
+        log(LEVEL_INFO, "Doing random read test");
         do_generic_test(do_pread_operation, do_mmap_read_operation, 
                         get_random_offset, get_random_loc,
                         d, &(d->randomReadTimings), &(d->randomReadLatency),
@@ -1129,6 +1131,7 @@ void do_random_read_test( ThreadData *d ) {
 }
 
 void do_random_write_test( ThreadData *d ) {
+        log(LEVEL_INFO, "Doing random write test");
         do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
                         get_random_offset, get_random_loc,
                         d, &(d->randomWriteTimings), &(d->randomWriteLatency),
