@@ -187,6 +187,7 @@ foreach $dir (@dirs) {
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
                }
                close(TIOTEST);
+               $progressbar->update(++$total_runs_completed) if $progress;
             }
             for my $field ('read','rread','write','rwrite') {
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
@@ -200,9 +201,8 @@ foreach $dir (@dirs) {
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
             }
-            $progressbar->update(++$total_runs_completed) if $progress;
             if($timeout && (time > ($start_time + $timeout))) {
-               print STDERR "Aborting tiotest runs, timeout of $timeout seconds has been reached\n";
+               print STDERR "Timeout of $timeout seconds has been reached, aborting ($total_runs_completed of $total_runs runs completed)\n";
                last OUTER;
             }
          }
