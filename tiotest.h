@@ -125,26 +125,26 @@ typedef struct {
 
 	unsigned long    blocksWritten;
 	Timings          writeTimings;
-	Latencies	 writeLatency;
+	Latencies	     writeLatency;
 
 	unsigned long    blocksRandomWritten;
 	Timings          randomWriteTimings;
-	Latencies	 randomWriteLatency;
+	Latencies	     randomWriteLatency;
 
 	unsigned long    blocksRead;
 	Timings          readTimings;
-	Latencies	 readLatency;
+	Latencies	     readLatency;
 
 	unsigned long    blocksRandomRead;
 	Timings          randomReadTimings;
-	Latencies	 randomReadLatency;
+	Latencies	     randomReadLatency;
 
 } ThreadData;
 
 typedef struct {
     
 	ThreadData* threads;
-	int numThreads;
+	int         numThreads;
     
 	Timings totalTimeWrite;
 	Timings totalTimeRandomWrite;
@@ -165,16 +165,16 @@ typedef struct {
 	int      terse;
 	int      sequentialWriting;
 	int      syncWriting;
-	int	 rawDrives;
+	int	     rawDrives;
 	int      consistencyCheckData;
 	int      showLatency;
 	long	 threadOffset;
-	int	 useThreadOffsetForFirstThread;
+	int	     useThreadOffsetForFirstThread;
 	
-	int	 testsToRun[TESTS_COUNT];
-	int	 runRandomWrite;
-	int	 runRead;
-	int	 runRandomRead;
+	int	     testsToRun[TESTS_COUNT];
+	int	     runRandomWrite;
+	int	     runRead;
+	int	     runRandomRead;
 
 	/*
 	  Debug level
@@ -202,9 +202,9 @@ void    do_tests( ThreadTest *d );
 void    timer_init(Timings *t);
 void    timer_start(Timings *t);
 void    timer_stop(Timings *t);
-const double timer_realtime(const Timings *t);
-const double timer_usertime(const Timings *t);
-const double timer_systime(const Timings *t);
+double  timer_realtime(const Timings *t);
+double  timer_usertime(const Timings *t);
+double  timer_systime(const Timings *t);
 
 clock_t get_time();
 unsigned int get_random_seed();
