@@ -22,7 +22,7 @@ sub usage {
             "[--identifier IdentString] (use IdentString as identifier in output)\n\t",
             "[--nofrag] (don't write fragmented files)\n\t",
             "[--size SizeInMB]+\n\t",
-            "[--numruns NumberOfRuns]+\n\t",
+            "[--numruns NumberOfRuns]\n\t",
             "[--dir TestDir]+\n\t",
             "[--block BlkSizeInBytes]+\n\t",
             "[--random NumberRandOpsPerThread]+\n\t",
