@@ -1,20 +1,29 @@
 /*
  *    Threaded io test
  *
- *    Author: Mika Kuoppala <miku@iki.fi>
- *       This software may be used and distributed according to the terms
- *       of the GNU General Public License, incorporated herein by reference.
+ *  Copyright (C) 1999-2000 Mika Kuoppala <miku@iki.fi>
  *
- *    Description:
- *       Very rough edged threaded io benchmark. The total
- *       results will contain the thread creation overhead time.
- *       This is not much with fast machine and rather low thread count.
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software Foundation,
+ *  Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+ *
  *
  */
 
 #include "tiotest.h"
+#include "crc32.h"
 
-static const char* versionStr = "tiotest v0.29 (C) Mika Kuoppala <miku@iki.fi>";
+static const char* versionStr = "tiotest v0.3.1 (C) 1999-2000 Mika Kuoppala <miku@iki.fi>";
 
 /* 
    This is global for easier usage. If you put changing data
@@ -26,7 +35,8 @@ int main(int argc, char *argv[])
 {
 	ThreadTest test;
 
-	strcpy(args.path, DEFAULT_DIRECTORY );
+	strcpy(args.path[0], DEFAULT_DIRECTORY );
+	args.pathsCount = 1;
 	args.fileSizeInMBytes = DEFAULT_FILESIZE;
 	args.blockSize = DEFAULT_BLOCKSIZE;
 	args.numThreads = DEFAULT_THREADS;
@@ -34,6 +44,7 @@ int main(int argc, char *argv[])
 	args.debugLevel = 0;
 	args.verbose = 0;
 	args.terse = 0;
+	args.consistencyCheckData = 0;
 
 #if (LARGEFILES && USE_MMAP)
 	printf("warning: LARGEFILES with MMAP needs mmap64 support which is not working yet in tiotest!\n");
@@ -55,10 +66,11 @@ int main(int argc, char *argv[])
 void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 {
 	int c;
-    
+	int once = 0;
+
 	while (1)
 	{
-		c = getopt( argc, argv, "f:b:d:t:r:hTW");
+		c = getopt( argc, argv, "f:b:d:t:r:hTWc");
 
 		if (c == -1)
 			break;
@@ -75,7 +87,13 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			break;
 	    
 		case 'd':
-			strcpy(args->path, optarg);
+			if (args->pathsCount < MAX_PATHS) {
+				if (!once) {
+					args->pathsCount = 0;           
+					once = 1;
+				}
+				strcpy(args->path[args->pathsCount++], optarg);
+			}
 			break;
 	    
 		case 't':
@@ -94,6 +112,10 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			args->sequentialWriting = TRUE;
 			break;
 
+		case 'c':
+			args->consistencyCheckData = TRUE;
+			break;
+
 		case 'h':
 			print_help_and_exit();
 			break;
@@ -110,7 +132,8 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 void initialize_test( ThreadTest *d )
 {
 	int i;
-    
+	int pathLoadBalIdx = 0;
+
 	memset( d, 0, sizeof(ThreadTest) );
     
 	d->numThreads = args.numThreads; 
@@ -133,8 +156,11 @@ void initialize_test( ThreadTest *d )
 		d->threads[i].fileSizeInMBytes = args.fileSizeInMBytes;
 		d->threads[i].blockSize = args.blockSize;
 		d->threads[i].numRandomOps = args.numRandomOps;
-		sprintf(d->threads[i].fileName, "%s/tiotest.%d",
-			args.path, i);
+		sprintf(d->threads[i].fileName, "%s/_%d_tiotest.%d",
+			args.path[pathLoadBalIdx++], getpid(), i);
+		
+		if( pathLoadBalIdx >= args.pathsCount )
+			pathLoadBalIdx = 0;
 
 		pthread_attr_init( &(d->threads[i].thread_attr) );
 
@@ -146,6 +172,18 @@ void initialize_test( ThreadTest *d )
 		{
 			perror("Error allocating memory");
 			exit(-1);
+		}
+
+		if( args.consistencyCheckData )
+		{
+			int j;
+			const unsigned long bsize = d->threads[i].blockSize;
+			unsigned char *b = d->threads[i].buffer;
+
+			for(j = 0; j < bsize; j++)
+				b[j] = rand() & 0xFF;
+
+			d->threads[i].bufferCrc = crc32(b, bsize, 0);
 		}
 	}
 }
@@ -196,6 +234,10 @@ void print_help_and_exit()
 	print_option("-T", "More terse output", 0);
 
 	print_option("-W", "Do writing phase sequentially", 0);
+
+	print_option("-c", 
+		     "Consistency check data (will slow io and raise cpu%)",
+		     0);
 
 	print_option("-h", "Print this help and exit", 0);
 
@@ -684,6 +726,20 @@ void* do_read_test( void *data )
 			break;
 		}
 #endif
+		
+		if( args.consistencyCheckData )
+		{
+		    if( crc32(buf, d->blockSize, 0) != d->bufferCrc )
+		    {
+			fprintf(stderr, 
+				"io error: crc read error in file %s "
+				"on block %lu\n",
+				d->fileName, d->blocksRead );
+
+			exit(10);
+		    }
+		}
+		
 		d->blocksRead++;
 	} 
     
@@ -767,6 +823,19 @@ void* do_random_read_test( void *data )
 			break;
 		}
 	
+		if( args.consistencyCheckData )
+		{
+		    if( crc32(buf, d->blockSize, 0) != d->bufferCrc )
+		    {
+			fprintf(stderr, 
+				"io error: crc seek/read error in file %s "
+				"on block %lu\n",
+				d->fileName, d->blocksRandomRead );
+			
+			exit(11);
+		    }
+		}
+
 		d->blocksRandomRead++;
 	} 
 	

@@ -24,17 +24,20 @@ DOCDIR=/usr/local/doc/$(DISTNAME)
 
 all: $(EXE)
 
-tiotest.o: tiotest.c tiotest.h Makefile
+crc32.o: crc32.c crc32.h
+	$(CC) -c $(CFLAGS) $(DEFINES) crc32.c -o crc32.o
+
+tiotest.o: tiotest.c tiotest.h crc32.h crc32.c Makefile
 	$(CC) -c $(CFLAGS) $(DEFINES) tiotest.c -o tiotest.o
 
-$(EXE): tiotest.o
-	$(LINK) -o $(EXE) tiotest.o -lpthread
+$(EXE): tiotest.o crc32.o
+	$(LINK) -o $(EXE) tiotest.o crc32.o -lpthread
 	@echo
 	@echo "./tiobench.pl --help for usage options"
 	@echo
 
 clean:
-	rm -f tiotest.o $(EXE) core
+	rm -f tiotest.o crc32.o $(EXE) core
 
 dist:
 	ln -s . $(DISTNAME)

@@ -134,3 +134,14 @@
 	- tiobench parsing and output change for random {read,write}
 	- s/finnish/finish/g in tiotest.c
 	- change tiotest.c output printing for random {read,write}
+
+2000-03-29	 Mika Kuoppala <miku@iki.fi>
+
+	* 0.3.0 - consistency checking option for test data files
+
+2000-05-14       Mika Kuoppala <miku@iki.fi>
+
+	* 0.3.1 - added load balancing feature for test directories
+	contributed by David_Major@btc.adaptec.com
+
+	
