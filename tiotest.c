@@ -279,7 +279,7 @@ void initialize_test( ThreadTest *d )
 		else
 		{
 			d->threads[i].fileOffset = 0;
-			sprintf(d->threads[i].fileName, "%s/_%d_tiotest.%d",
+			sprintf(d->threads[i].fileName, "%s/_tiotest_pid%d.thr%d",
 					args.path[pathLoadBalIdx++], (int) getpid(), i);
 		}
 		
