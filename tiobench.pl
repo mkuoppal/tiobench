@@ -202,7 +202,7 @@ foreach $dir (@dirs) {
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
             }
             if($timeout && (time > ($start_time + $timeout))) {
-               print STDERR "Timeout of $timeout seconds has been reached, aborting ($total_runs_completed of $total_runs runs completed)\n";
+               print STDERR "\nTimeout of $timeout seconds has been reached, aborting ($total_runs_completed of $total_runs runs completed)\n";
                last OUTER;
             }
          }
