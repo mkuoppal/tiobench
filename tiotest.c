@@ -939,11 +939,9 @@ void* do_write_test( ThreadData *d )
 	TIO_off_t  i;
 	int     openFlags;
 	
-#ifdef USE_MMAP
 	int     rc;
 	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
-	void *file_loc;
-#endif
+	void *file_loc = NULL;
 
 	if (args.rawDrives) 
 		openFlags = O_RDWR;
@@ -970,43 +968,41 @@ void* do_write_test( ThreadData *d )
 		fflush(stderr);
 	}
 	
-#ifdef USE_MMAP
-	if (!args.rawDrives) {
-	        if (args.debugLevel >= LEVEL_DEBUG)
+        if(args.use_mmap) {
+	        if (!args.rawDrives) {
+	                if (args.debugLevel >= LEVEL_DEBUG)
+	                {
+		                fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
+		                fflush(stderr);
+	                }
+		        rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
+	                if(rc != 0) {
+		                perror(xstr(TIO_ftruncate) "() failed");
+		                close(fd);
+		                return 0;
+                        }
+                        }
+        
+	        file_loc=TIO_mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
+		        d->fileOffset);
+	        if(file_loc == MAP_FAILED) 
 	        {
-		        fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
-		        fflush(stderr);
-	        }
-		rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
-	        if(rc != 0) {
-		        perror(xstr(TIO_ftruncate) "() failed");
+                        fprintf(stderr, "bytesize=" OFFSET_FORMAT ", fd=%d, offset=" OFFSET_FORMAT "\n", bytesize, fd, d->fileOffset);
+		        perror("Error " xstr(TIO_mmap) "()ing data file");
 		        close(fd);
 		        return 0;
-                }
-        }
+	        }
 
-	file_loc=TIO_mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
-		      d->fileOffset);
-	if(file_loc == MAP_FAILED) 
-	{
-                fprintf(stderr, "bytesize=" OFFSET_FORMAT ", fd=%d, offset=" OFFSET_FORMAT "\n", bytesize, fd, d->fileOffset);
-		perror("Error " xstr(TIO_mmap) "()ing data file");
-		close(fd);
-		return 0;
-	}
-#ifdef USE_MADVISE
-	/* madvise(file_loc,bytesize,MADV_DONTNEED); */
-	madvise(file_loc,bytesize,MADV_RANDOM);
-#endif
+	        madvise(file_loc,bytesize,MADV_RANDOM);
 
-#else
-	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	{
-		report_seek_error(d->fileOffset, d->blocksRandomWritten);
-		close(fd);
-		return 0;
+        } else {
+	        if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	        {
+		        report_seek_error(d->fileOffset, d->blocksRandomWritten);
+		        close(fd);
+		        return 0;
+	        }
 	}
-#endif
 
 	timer_start( &(d->writeTimings) );
 	
@@ -1015,15 +1011,17 @@ void* do_write_test( ThreadData *d )
 		struct timeval tv_start, tv_stop;
 		double value;
 		gettimeofday(&tv_start, NULL);
-#ifdef USE_MMAP
-		memcpy(file_loc + i * d->blockSize,buf,d->blockSize);
-#else
-		if( write( fd, buf, d->blockSize ) != d->blockSize )
-		{
-			perror("Error write()ing to file");
-			break;
+
+                if(args.use_mmap) {
+		        memcpy(file_loc + i * d->blockSize,buf,d->blockSize);
+                } else {
+		        if( write( fd, buf, d->blockSize ) != d->blockSize )
+		        {
+			        perror("Error write()ing to file");
+			        break;
+		        }
 		}
-#endif
+
 		d->blocksWritten++;
 		
 		gettimeofday(&tv_stop, NULL);
@@ -1039,9 +1037,9 @@ void* do_write_test( ThreadData *d )
 			d->writeLatency.count2++;
 	} 
     
-#ifdef USE_MMAP
-	munmap(file_loc,bytesize);
-#endif
+        if(args.use_mmap) {
+	        munmap(file_loc,bytesize);
+        }
 
 	fsync(fd);
 
@@ -1154,10 +1152,8 @@ void* do_read_test( ThreadData *d )
 	TIO_off_t  i;
 	int     openFlags = O_RDONLY;
  
-#ifdef USE_MMAP
 	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
-	void *file_loc;
-#endif
+	void *file_loc = NULL;
 
 #ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
@@ -1176,27 +1172,26 @@ void* do_read_test( ThreadData *d )
 		fflush(stderr);
 	}
 
-#ifdef USE_MMAP
-	file_loc=TIO_mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
-	if(file_loc == MAP_FAILED) 
-	{
-		perror("Error " xstr(TIO_mmap) "()ing file");
-		close(fd);
-		return 0;
-	}
-#  ifdef USE_MADVISE
-	/* madvise(file_loc,bytesize,MADV_DONTNEED); */
-	madvise(file_loc,bytesize,MADV_RANDOM);
-#  endif
-#else
-	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	{
-		report_seek_error(d->fileOffset, 
-				  d->blocksRandomWritten);
-		close(fd);
-		return 0;
-	}
-#endif
+        if(args.use_mmap) {
+	        file_loc=TIO_mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
+	        if(file_loc == MAP_FAILED) 
+	        {
+		        perror("Error " xstr(TIO_mmap) "()ing file");
+		        close(fd);
+		        return 0;
+	        }
+
+	        madvise(file_loc,bytesize,MADV_RANDOM);
+
+        } else {
+	        if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	        {
+		        report_seek_error(d->fileOffset, 
+				        d->blocksRandomWritten);
+		        close(fd);
+		        return 0;
+	        }
+        }
 
 	timer_start( &(d->readTimings) );
 
@@ -1205,15 +1200,17 @@ void* do_read_test( ThreadData *d )
 		struct timeval tv_start, tv_stop;
 		double value;
 		gettimeofday(&tv_start, NULL);
-#ifdef USE_MMAP
-		memcpy(buf,file_loc + i * d->blockSize,d->blockSize);
-#else
-		if( read( fd, buf, d->blockSize ) != d->blockSize )
-		{
-			perror("Error read()ing from file");
-			break;
-		}
-#endif
+
+                if(args.use_mmap) {
+		        memcpy(buf,file_loc + i * d->blockSize,d->blockSize);
+                } else {
+		        if( read( fd, buf, d->blockSize ) != d->blockSize )
+		        {
+			        perror("Error read()ing from file");
+			        break;
+		        }
+                }
+
 		gettimeofday(&tv_stop, NULL);
 		value = tv_stop.tv_sec - tv_start.tv_sec;
 		value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
