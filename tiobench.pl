@@ -45,11 +45,22 @@ foreach my $place (@tiotest_places) {
 }
 
 if (! -x $tiotest) {
-    print "tiotest program not found in any of the following places:\n\n",
-          join(' ',@tiotest_places),"\n\n",
-          "copy it to one of them or modify this perl script's ",
-          "\@tiotest_places array\n";
-    exit(1);
+   print "tiotest program not found in any of the following places:\n\n",
+      join(' ',@tiotest_places),"\n\n";
+   if( -f 'tiotest.c') {
+      print "tiotest.c found in pwd, trying to build tiotest with make\n";
+      system("make"); $tiotest = './tiotest';
+      if(-x $tiotest) {
+         print "... tiotest successfully built, continuing\n";
+      } else {
+         print "... attempt failed, exiting\n";
+         exit(1);
+      }
+   } else {
+      print "copy tiotest to one of the listed locations or modify ",
+            "this perl script's \@tiotest_places array\n";
+      exit(1);
+   }
 }
 
 # variables
