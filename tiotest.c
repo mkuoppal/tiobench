@@ -83,6 +83,17 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
+static void checkValidFileSize(const int value)
+{
+#ifndef LARGEFILES
+	if (value > MAXINT / (1024*1024)) 
+	{
+		printf("Specified file size too large, please specify something under 2GB\n");
+		exit(1);
+	}
+#endif
+}
+
 static void checkIntZero(const int value, const char* const mess)
 {
 	if (value <= 0) 
@@ -120,6 +131,7 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			case 'f':
 				args->fileSizeInMBytes = atoi(optarg);
 				checkIntZero(args->fileSizeInMBytes, "Wrong file size\n");
+				checkValidFileSize(args->fileSizeInMBytes);
 				break;
 	    
 			case 'b':

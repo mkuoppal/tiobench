@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-#    Author: James Manning <jmm@users.sf.net>
+#    Author: James Manning <jmm at users.sf.net>
 #       This software may be used and distributed according to the terms of
 #       the GNU General Public License, http://www.gnu.org/copyleft/gpl.html
 #
@@ -27,6 +27,7 @@ sub usage {
             "[--block BlkSizeInBytes]+\n\t",
             "[--random NumberRandOpsAllThreads]+\n\t",
             "[--threads NumberOfThreads]+\n\n",
+            "[--debug DebugLevel]\n\t",
    "+ means you can specify this option multiple times to cover multiple\n",
    "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
    "through with a 4KB block size and then again with a 8KB block size.\n",
@@ -66,7 +67,7 @@ my $rwrite_mbytes; my $rwrite_time; my $rwrite_utime; my $rwrite_stime;
 my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
-my $identifier;
+my $identifier;    my $debug;
 
 # option parsing
 GetOptions("dir=s@",\@dirs,
@@ -77,6 +78,7 @@ GetOptions("dir=s@",\@dirs,
            "numruns=i",\$num_runs,
            "help",\$help,
            "nofrag",\$nofrag,
+           "debug=i",\$debug,
            "threads=i@",\@threads);
 
 &usage if $help || $Getopt::Long::error;
@@ -88,6 +90,7 @@ $num_runs=1 unless $num_runs && $num_runs > 0;
 @threads=qw(1 2 4 8) unless @threads;
 $random_ops=4000 unless $random_ops;
 $identifier=`uname -r` unless $identifier;
+$debug=0 unless $debug;
 unless(@sizes) { # try to be a little smart about file size when possible
    my $mem_size; my @stat_ret;
    if(@stat_ret = stat("/proc/kcore")) {
@@ -139,6 +142,7 @@ foreach $dir (@dirs) {
             my $run_string = "$tiotest -t $thread -f $thread_size ".
                              "-r $thread_rand -b $block -d $dir -T";
             $run_string .= " -W" if $nofrag;
+            $run_string .= " -D $debug" if $debug > 0;
             foreach $run_number (1..$num_runs) {
                my $prompt="Run #$run_number: $run_string";
                print STDERR $prompt;
@@ -169,7 +173,7 @@ foreach $dir (@dirs) {
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
-                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100));
+                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
             }
          }
       }
@@ -190,15 +194,17 @@ Lat%      = percent of requests that took longer than X seconds
 CPU Eff   = Rate divided by CPU% - throughput per cpu load
 ";
 
-my %report;
-$report{'SEQ_READS'}    = "Sequential Reads";
-$report{'RAND_READS'}   = "Random Reads";
-$report{'SEQ_WRITES'}   = "Sequential Writes";
-$report{'RAND_WRITES'}  = "Random Writes";
+my %report = (
+   'SEQ_READS'   => 'Sequential Reads',
+   'RAND_READS'  => 'Random Reads',
+   'SEQ_WRITES'  => 'Sequential Writes',
+   'RAND_WRITES' => 'Random Writes',
+);
 
 foreach my $title ('SEQ_READS', 'RAND_READS', 'SEQ_WRITES', 'RAND_WRITES') {
    $-=0; $~="$title"; $^L=''; # reporting variables
    print "\n$report{$title}\n";
+   print '=' x length("$report{$title}") . "\n";
    foreach $size (@sizes) {
       foreach $block (@blocks) {
          foreach $thread (@threads) {
