@@ -168,3 +168,13 @@
 2003-11-04       James Manning <jmm at users.sf.net>
 
 	* 0.3.5 - new params for tiobench
+
+2003-11-18       James Manning <jmm at users.sf.net>
+
+	* 0.3.5 - new test_largefiles.c large-file-support checker
+        - remove #define checks for USE_MMAP/USE_MADVISE
+
+2003-11-18       James Manning <jmm at users.sf.net>
+
+	* 0.3.5 - massive refactor to a single do_generic_test
+        - can MMAP over big files now, it does 1GB chunks

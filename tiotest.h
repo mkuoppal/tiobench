@@ -27,10 +27,10 @@
 
 void    print_help_and_exit();
 
-void*   do_write_test( ThreadData *d );
-void*   do_read_test( ThreadData *d );
-void*   do_random_read_test( ThreadData *d );
-void*   do_random_write_test( ThreadData *d );
+void   do_write_test( ThreadData *d );
+void   do_read_test( ThreadData *d );
+void   do_random_read_test( ThreadData *d );
+void   do_random_write_test( ThreadData *d );
 
 void    initialize_test( ThreadTest *d  );
 
@@ -50,11 +50,30 @@ double  timer_systime(const Timings *t);
 clock_t get_time();
 unsigned int get_random_seed();
 
-inline const TIO_off_t get_random_offset(const TIO_off_t filesize, unsigned int *seed);
+inline const TIO_off_t get_random_number(const TIO_off_t filesize, unsigned int *seed);
 
 void    parse_args( ArgumentOptions* args, int argc, char *argv[] );
 
-typedef void*(*TestFunc)(ThreadData *);
+typedef void (*TestFunc)(ThreadData *);
+
+// operation functions
+void do_pwrite_operation(int fd, TIO_off_t offset, ThreadData *d);
+void do_pread_operation(int fd, TIO_off_t offset, ThreadData *d);
+void do_mmap_read_operation(void *loc, ThreadData *d);
+void do_mmap_write_operation(void *loc, ThreadData *d);
+
+// offset functions
+TIO_off_t get_sequential_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+TIO_off_t get_random_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+void *get_sequential_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
+void *get_random_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
+
+
+
+
+
+
+
 
 #define WRITE_TEST         0
 #define RANDOM_WRITE_TEST  1

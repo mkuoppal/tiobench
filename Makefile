@@ -7,14 +7,7 @@ CFLAGS=-O2 -Wall
 # This enables support for 64bit file offsets, allowing
 # possibility to test with files larger than (2^31-1) bytes.
 
-DEFINES=-DUSE_LARGEFILES -DUSE_MMAP -DUSE_MADVISE
-
-#DEFINES=-DUSE_LARGEFILES
-#DEFINES=-DUSE_MMAP 
-#-DUSE_MADVISE
-
-
-#DEFINES=
+DEFINES=-DUSE_LARGEFILES
 
 # This define is for Solaris and others where getrusage returns 
 # in process scope despite of threads
@@ -41,7 +34,7 @@ tiotest.o: tiotest.c tiotest.h crc32.h crc32.c Makefile
 	$(CC) -c $(CFLAGS) $(DEFINES) tiotest.c -o tiotest.o
 
 test_largefiles.o: tiotest.h test_largefiles.c
-	$(CC) -c -DUSE_LARGEFILES -DUSE_MMAP -DUSE_MADVISE $(CFLAGS) $(DEFINES) test_largefiles.c -o test_largefiles.o
+	$(CC) -c -DUSE_LARGEFILES $(CFLAGS) $(DEFINES) test_largefiles.c -o test_largefiles.o
 
 $(TIOTEST): tiotest.o crc32.o
 	$(LINK) -o $(TIOTEST) tiotest.o crc32.o -lpthread

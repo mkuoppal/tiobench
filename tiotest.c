@@ -27,6 +27,23 @@ static const char* versionStr = "tiotest v0.3.5 (C) 1999-2003 tiobench team <htt
 
 static ArgumentOptions args;
 
+inline void update_latency_info(Latencies *lat, struct timeval tv_start, struct timeval tv_stop) {
+	double value;
+
+	value = tv_stop.tv_sec - tv_start.tv_sec;
+	value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
+
+	if (value > lat->max)
+		lat->max = value;
+	lat->avg += value;
+	lat->count++;
+	if (value > (double)LATENCY_STAT1)
+		lat->count1++;
+	if (value > (double)LATENCY_STAT2)
+		lat->count2++;
+        return;
+}
+
 static void * aligned_alloc(const ssize_t size)
 {
 	caddr_t a;
@@ -466,7 +483,8 @@ void* start_proc( void *data )
 	*sd->child_status = getpid();
 	if (sd->pstart != NULL)
 		while (*sd->pstart == 0) sleep(0);
-	return sd->fn(sd->d);
+	sd->fn(sd->d);
+	return NULL;
 }
 
 void do_test( ThreadTest *test, int testCase, int sequential,
@@ -897,57 +915,25 @@ void print_results( ThreadTest *d )
 	}
 }
 
-#define REPORT_SEEK_ERROR(name, offset, seeks)       \
-        do {                                    \
-	        char buf[1024];                 \
-	        sprintf(buf,                    \
-		        "Error in " name ", offset = " OFFSET_FORMAT ", seeks = %ld: ",     \
-		        offset, seeks );        \
-	        perror(buf);                    \
-        } while (0);
-
-#define REPORT_IO_ERROR(name, offset, bytes, seeks)       \
-        do {                                    \
-	        char buf[1024];                 \
-	        sprintf(buf,                    \
-		        "Error in " name ", offset = " OFFSET_FORMAT ", bytes = %d, seeks = %ld: ",     \
-		        offset, bytes, seeks ); \
-	        perror(buf);                    \
-        } while (0);
-
-
-void report_seek_error(TIO_off_t offset, unsigned long seeks)
-{
-        REPORT_SEEK_ERROR("seek", offset, seeks);
-}
-
-void report_random_write_error(TIO_off_t offset, ssize_t bytesWritten, unsigned long seeks)
-{
-        REPORT_IO_ERROR("randomwrite", offset, bytesWritten, seeks);
-}
-
-void report_read_error(TIO_off_t offset, ssize_t bytesRead, unsigned long seeks)
-{
-        REPORT_IO_ERROR("seek/read", offset, bytesRead, seeks);
-}
-
-void* do_write_test( ThreadData *d )
-{
+void* do_generic_test(file_io_function io_func, mmap_io_function mmap_func, 
+                      file_offset_function offset_func, mmap_loc_function loc_func, 
+                      ThreadData *d, Timings *timings, Latencies *latencies,
+                      int madvise_advice, unsigned long *blockCount) {
 	int     fd;
-	char    *buf = d->buffer;
 	TIO_off_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
-	TIO_off_t  i;
-	int     openFlags;
+        unsigned int seed = get_random_seed();
 	
 	int     rc;
 	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
-	void *file_loc = NULL;
 
-	if (args.rawDrives) 
-		openFlags = O_RDWR;
-	else
-		openFlags = O_RDWR | O_CREAT | O_TRUNC;
+        // for now, always read/write, just easier
+	int openFlags = O_RDWR;
 
+        // if not a pre-existing device, add create/truncate flags
+	if (!args.rawDrives) 
+		openFlags |= O_CREAT | O_TRUNC;
+
+        // if sync I/O requested, do it at open time
 	if( args.syncWriting )
 		openFlags |= O_SYNC;
 
@@ -956,401 +942,200 @@ void* do_write_test( ThreadData *d )
 #endif
     
 	fd = open(d->fileName, openFlags, 0600 );
-	if(fd == -1) 
-	{
+	if(fd == -1) {
 		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
 		return 0;
 	}
 
-	if (args.debugLevel >= LEVEL_INFO)
-	{
-		fprintf(stderr, "do_write_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
-		fflush(stderr);
-	}
-	
-        if(args.use_mmap) {
-	        if (!args.rawDrives) {
-	                if (args.debugLevel >= LEVEL_DEBUG)
-	                {
-		                fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
-		                fflush(stderr);
-	                }
-		        rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
-	                if(rc != 0) {
-		                perror(xstr(TIO_ftruncate) "() failed");
-		                close(fd);
-		                return 0;
-                        }
-                        }
-        
-	        file_loc=TIO_mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
-		        d->fileOffset);
-	        if(file_loc == MAP_FAILED) 
-	        {
-                        fprintf(stderr, "bytesize=" OFFSET_FORMAT ", fd=%d, offset=" OFFSET_FORMAT "\n", bytesize, fd, d->fileOffset);
-		        perror("Error " xstr(TIO_mmap) "()ing data file");
-		        close(fd);
-		        return 0;
-	        }
-
-	        madvise(file_loc,bytesize,MADV_RANDOM);
-
-        } else {
-	        if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	        {
-		        report_seek_error(d->fileOffset, d->blocksRandomWritten);
-		        close(fd);
-		        return 0;
-	        }
-	}
-
-	timer_start( &(d->writeTimings) );
-	
-	for(i = 0; i < blocks; i++)
-	{
-		struct timeval tv_start, tv_stop;
-		double value;
-		gettimeofday(&tv_start, NULL);
-
-                if(args.use_mmap) {
-		        memcpy(file_loc + i * d->blockSize,buf,d->blockSize);
-                } else {
-		        if( write( fd, buf, d->blockSize ) != d->blockSize )
-		        {
-			        perror("Error write()ing to file");
-			        break;
-		        }
-		}
-
-		d->blocksWritten++;
-		
-		gettimeofday(&tv_stop, NULL);
-		value = tv_stop.tv_sec - tv_start.tv_sec;
-		value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
-		if (value > d->writeLatency.max)
-			d->writeLatency.max = value;
-		d->writeLatency.avg += value;
-		d->writeLatency.count++;
-		if (value > (double)LATENCY_STAT1)
-			d->writeLatency.count1++;
-		if (value > (double)LATENCY_STAT2)
-			d->writeLatency.count2++;
-	} 
-    
-        if(args.use_mmap) {
-	        munmap(file_loc,bytesize);
-        }
-
-	fsync(fd);
-
-	close(fd);
-
-	timer_stop( &(d->writeTimings) );
-
-	return 0;
-}
-
-void* do_random_write_test( ThreadData *d )
-{
-	int      i;
-	char     *buf = d->buffer;
-	TIO_off_t   blocks=(d->fileSizeInMBytes*MBYTE/d->blockSize);
-	int      fd;
-	TIO_off_t   offset;
-	ssize_t  bytesWritten;
-	int      openFlags = O_WRONLY;
-	
-	unsigned int seed = get_random_seed();
-	
-	if( args.syncWriting )
-		openFlags |= O_SYNC;
-
-#ifdef USE_LARGEFILES
-	openFlags |= O_LARGEFILE;
-#endif
-
-	fd = open(d->fileName, openFlags);
-	if(fd == -1) 
-	{
-		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
-		return 0;
-	}
-	
-	if (args.debugLevel >= LEVEL_INFO)
-	{
-		fprintf(stderr, "do_random_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
-		fflush(stderr);
-	}
-	
-	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	{
-		report_seek_error(d->fileOffset, d->blocksRandomWritten);
-		close(fd);
-		return 0;
-	}
-    
-	timer_start( &(d->randomWriteTimings) );
-
-	for(i = 0; i < d->numRandomOps; i++)
-	{
-		struct timeval tv_start, tv_stop;
-		double value;
-		
-		offset = get_random_offset(blocks-1, &seed) * d->blockSize;
-
-		if(args.debugLevel >= LEVEL_TRACE)
-		{
-			fprintf(stderr, "Thread: %u chose seek of %Lu\n", 
-				(unsigned)getpid(), (long long)offset );
-			fflush(stderr);
-		}
-
-		if( TIO_lseek( fd, offset, SEEK_SET ) != offset )
-		{
-			report_seek_error(offset, d->blocksRandomWritten);
-			break;
-		}
-		
-		gettimeofday(&tv_start, NULL);
-
-		if( (bytesWritten = write( fd, buf, d->blockSize )) != d->blockSize )
-		{
-			report_random_write_error(offset, bytesWritten, 
-						  d->blocksRandomWritten);
-			break;
-		}
-	
-		d->blocksRandomWritten++;
-		
-		gettimeofday(&tv_stop, NULL);
-		value = tv_stop.tv_sec - tv_start.tv_sec;
-		value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
-		if (value > d->randomWriteLatency.max)
-			d->randomWriteLatency.max = value;
-		d->randomWriteLatency.avg += value;
-		d->randomWriteLatency.count++;
-		if (value > (double)LATENCY_STAT1)
-			d->randomWriteLatency.count1++;
-		if (value > (double)LATENCY_STAT2)
-			d->randomWriteLatency.count2++;
-	} 
-
-	fsync(fd);
-
-	close(fd);
-
-	timer_stop( &(d->randomWriteTimings) );
-	
-	return 0;
-}
-
-void* do_read_test( ThreadData *d )
-{
-	char    *buf = d->buffer;
-	int     fd;
-	TIO_off_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
-	TIO_off_t  i;
-	int     openFlags = O_RDONLY;
- 
-	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
-	void *file_loc = NULL;
-
-#ifdef USE_LARGEFILES
-	openFlags |= O_LARGEFILE;
-#endif
-
-	fd = open(d->fileName, openFlags);
-	if(fd == -1) 
-	{
-		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
-		return 0;
-	}
-	
-	if (args.debugLevel >= LEVEL_INFO)
-	{
-		fprintf(stderr, "do_read_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
-		fflush(stderr);
-	}
-
-        if(args.use_mmap) {
-	        file_loc=TIO_mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
-	        if(file_loc == MAP_FAILED) 
-	        {
-		        perror("Error " xstr(TIO_mmap) "()ing file");
-		        close(fd);
-		        return 0;
-	        }
-
-	        madvise(file_loc,bytesize,MADV_RANDOM);
-
-        } else {
-	        if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	        {
-		        report_seek_error(d->fileOffset, 
-				        d->blocksRandomWritten);
-		        close(fd);
-		        return 0;
-	        }
-        }
-
-	timer_start( &(d->readTimings) );
-
-	for(i = 0; i < blocks; i++)
-	{
-		struct timeval tv_start, tv_stop;
-		double value;
-		gettimeofday(&tv_start, NULL);
-
-                if(args.use_mmap) {
-		        memcpy(buf,file_loc + i * d->blockSize,d->blockSize);
-                } else {
-		        if( read( fd, buf, d->blockSize ) != d->blockSize )
-		        {
-			        perror("Error read()ing from file");
-			        break;
-		        }
+        /* if doing real files, get them pre-allocated in size */
+        if (!args.rawDrives) {
+                if (args.debugLevel >= LEVEL_DEBUG)
+                {
+	                fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
+	                fflush(stderr);
                 }
+	        rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
+                if(rc != 0) {
+	                perror(xstr(TIO_ftruncate) "() failed");
+	                close(fd);
+	                return 0;
+                }
+        }
 
-		gettimeofday(&tv_stop, NULL);
-		value = tv_stop.tv_sec - tv_start.tv_sec;
-		value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
-		if (value > d->readLatency.max)
-			d->readLatency.max = value;
-		d->readLatency.avg += value;
-		d->readLatency.count++;
-		if (value > (double)LATENCY_STAT1)
-			d->readLatency.count1++;
-		if (value > (double)LATENCY_STAT2)
-			d->readLatency.count2++;
-		
-		if( args.consistencyCheckData )
-		{
-			if( crc32(buf, d->blockSize, 0) != d->bufferCrc )
-			{
-				fprintf(stderr, 
-					"io error: crc read error in file %s "
-					"on block %lu\n",
-					d->fileName, d->blocksRead );
+	timer_start( timings );
 
-				exit(10);
-			}
-		}
-		
-		d->blocksRead++;
-	} 
-    
-	timer_stop( &(d->readTimings) );
+        if(args.use_mmap) {
+                /**
+                 * MEMORY-MAPPED OPERATIONS
+                 */
+                int chunk_num;
+                TIO_off_t total_size = (long)blocks*(long)d->blockSize;
+                // rounds the number of mmap chunks up, basically ceiling function
+                long num_mmap_chunks = (long)(total_size + MMAP_CHUNK_SIZE - 1)/(long)MMAP_CHUNK_SIZE;
 
-#ifdef MMAP
-	munmap(file_loc,bytesize);
-#endif
+                for(chunk_num=0; chunk_num < num_mmap_chunks; chunk_num++) {
+                        void *file_loc = NULL;
+                        long this_chunk_offset = d->fileOffset + chunk_num*MMAP_CHUNK_SIZE;
+                        long this_chunk_size = MIN(MMAP_CHUNK_SIZE, (TIO_off_t)total_size - chunk_num*MMAP_CHUNK_SIZE);
+                        long this_chunk_blocks = this_chunk_size / d->blockSize;
+                        int chunk_block;
+                        void *current_loc = NULL;
+
+                        file_loc=TIO_mmap(NULL,this_chunk_size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
+                                this_chunk_offset);
+                        if(file_loc == MAP_FAILED) {
+                                fprintf(stderr, "this_chunk_size=%ld, fd=%d, offset=" OFFSET_FORMAT 
+                                                "\n", this_chunk_size, fd, d->fileOffset);
+                                perror("Error " xstr(TIO_mmap) "()ing data file");
+                                close(fd);
+                                return 0;
+                        }
+
+                        madvise(file_loc, this_chunk_size, madvise_advice);
+
+                        current_loc = file_loc;
+                        for(chunk_block = 0; chunk_block < this_chunk_blocks; chunk_block++) {
+                                struct timeval tv_start, tv_stop;
+
+                                current_loc = (*loc_func)(file_loc, current_loc, d, &(seed));
+
+                                gettimeofday(&tv_start, NULL);
+
+                                mmap_func(current_loc, d);
+                                if( args.syncWriting ) msync(file_loc,bytesize,MS_SYNC);
+
+                                gettimeofday(&tv_stop, NULL);
+                                update_latency_info(latencies, tv_start, tv_stop);
+                        } 
+                        (*blockCount) += this_chunk_blocks; // take this out of the for loop, we don't handle errors that well
+
+                        munmap(file_loc, this_chunk_size);
+                }
+	} else {
+                /**
+                 * REGULAR I/O OPERATIONS
+                 */
+                TIO_off_t current_offset = d->fileOffset;
+                int i;
+
+                for(i = 0; i < blocks; i++) {
+                        struct timeval tv_start, tv_stop;
+
+                        current_offset = (*offset_func)(current_offset, d, &(seed));
+
+                        gettimeofday(&tv_start, NULL);
+                        (*io_func)(fd, current_offset, d);
+                        gettimeofday(&tv_stop, NULL);
+                        update_latency_info(latencies, tv_start, tv_stop);
+
+                } 
+                (*blockCount) += blocks; // take this out of the for loop, we don't handle errors that well
+        }
+	
+	fsync(fd);
 	close(fd);
+
+	timer_stop( timings );
 
 	return 0;
 }
 
-void* do_random_read_test( ThreadData *d )
-{
-	int      i;
-	char     *buf = d->buffer;
-	TIO_off_t   blocks = (d->fileSizeInMBytes*MBYTE/d->blockSize);
-	int      fd;
-	TIO_off_t   offset;
-	ssize_t  bytesRead;
-	int      openFlags = O_RDONLY;
+/*
+ * p{write,read} functions
+ */
 
-	unsigned int seed = get_random_seed();
+// 
+// define functions to get the next offset for the next I/O operation
+//
 
-#ifdef USE_LARGEFILES
-	openFlags |= O_LARGEFILE;
-#endif
-
-	fd = open(d->fileName, openFlags);
-	if(fd == -1) 
-	{
-		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
-		return 0;
-	}
-	
-	if (args.debugLevel >= LEVEL_INFO)
-	{
-		fprintf(stderr, "do_random_read_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
-		fflush(stderr);
-	}
-	
-	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
-	{
-		report_seek_error(d->fileOffset, d->blocksRandomWritten);
-		close(fd);
-		return 0;
-	}
-    
-	timer_start( &(d->randomReadTimings) );
-
-	for(i = 0; i < d->numRandomOps; i++)
-	{
-		struct timeval tv_start, tv_stop;
-		double value;
-	
-		offset = get_random_offset(blocks-1, &seed) * d->blockSize + 
-			d->fileOffset;
-
-		if(args.debugLevel >= LEVEL_TRACE)
-		{
-			fprintf(stderr, "Thread: %u chose seek of %Lu\n", 
-				(unsigned)getpid(), (long long)offset );
-			fflush(stderr);
-		}
-
-		if( TIO_lseek( fd, offset, SEEK_SET ) != offset )
-		{
-			report_seek_error(offset, d->blocksRandomRead);
-			break;
-		}
-
-		gettimeofday(&tv_start, NULL);
-
-		if( (bytesRead = read( fd, buf, d->blockSize )) != d->blockSize )
-		{
-			report_read_error(offset, bytesRead, 
-					  d->blocksRandomRead);
-			break;
-		}
-		
-		gettimeofday(&tv_stop, NULL);
-		value = tv_stop.tv_sec - tv_start.tv_sec;
-		value += (tv_stop.tv_usec - tv_start.tv_usec)/1000000.0;
-		if (value > d->randomReadLatency.max)
-			d->randomReadLatency.max = value;
-		d->randomReadLatency.avg += value;
-		d->randomReadLatency.count++;
-		if (value > (double)LATENCY_STAT1)
-			d->randomReadLatency.count1++;
-		if (value > (double)LATENCY_STAT2)
-			d->randomReadLatency.count2++;
-	
-		if( args.consistencyCheckData )
-		{
-			if( crc32(buf, d->blockSize, 0) != d->bufferCrc )
-			{
-				fprintf(stderr, 
-					"io error: crc seek/read error in file %s "
-					"on block %lu\n",
-					d->fileName, d->blocksRandomRead );
-			
-				exit(11);
-			}
-		}
-
-		d->blocksRandomRead++;
-	} 
-	
-	timer_stop( &(d->randomReadTimings) );
-
-	close(fd);
-
-	return 0;
+TIO_off_t get_sequential_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed) {
+        return current_offset + d->blockSize;
 }
+
+TIO_off_t get_random_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed) {
+	TIO_off_t blocks=(d->fileSizeInMBytes*MBYTE/d->blockSize);
+	TIO_off_t offset = get_random_number(blocks, seed) * d->blockSize;
+        return d->fileOffset + offset;
+}
+
+// 
+// define READ/WRITE operations on file descriptors
+//
+
+void do_pwrite_operation(int fd, TIO_off_t offset, ThreadData *d) {
+        if( TIO_pwrite( fd, d->buffer, d->blockSize, offset ) != d->blockSize ) {
+                perror("Error pwrite()ing to file");
+        }
+}
+
+void do_pread_operation(int fd, TIO_off_t offset, ThreadData *d) {
+        if( TIO_pread( fd, d->buffer, d->blockSize, offset ) != d->blockSize ) {
+                perror("Error pread()ing to file");
+        }
+}
+
+/*
+ * MMAP functions
+ */
+
+// 
+// define functions to get the next memory location for the next mmap operation
+//
+
+void *get_sequential_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed) {
+        return current_loc + d->blockSize;
+}
+
+void *get_random_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed) {
+        // limit ourselves to a single (the current) mmap chunk for now, just easier
+        TIO_off_t max_bytes = MIN(MMAP_CHUNK_SIZE, d->fileSizeInMBytes*MBYTE);
+	TIO_off_t blocks    = (max_bytes/d->blockSize);
+	TIO_off_t offset    = get_random_number(blocks, seed) * d->blockSize;
+        return base_loc + offset;
+}
+
+// 
+// define functions to perform the next mmap-based read or write
+//
+
+void do_mmap_read_operation(void *loc, ThreadData *d) {
+        memcpy(loc, d->buffer, d->blockSize);
+}
+
+void do_mmap_write_operation(void *loc, ThreadData *d) {
+        memcpy(d->buffer, loc, d->blockSize);
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+void do_read_test( ThreadData *d ) {
+        do_generic_test(do_pread_operation, do_mmap_read_operation, 
+                        get_sequential_offset, get_sequential_loc,
+                        d, &(d->readTimings), &(d->readLatency),
+                        MADV_SEQUENTIAL, &(d->blocksRead));
+}
+
+void do_write_test( ThreadData *d ) {
+        do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
+                        get_sequential_offset, get_sequential_loc,
+                        d, &(d->writeTimings), &(d->writeLatency),
+                        MADV_SEQUENTIAL, &(d->blocksWritten));
+}
+
+void do_random_read_test( ThreadData *d ) {
+        do_generic_test(do_pread_operation, do_mmap_read_operation, 
+                        get_random_offset, get_random_loc,
+                        d, &(d->randomReadTimings), &(d->randomReadLatency),
+                        MADV_RANDOM, &(d->blocksRandomRead));
+}
+
+void do_random_write_test( ThreadData *d ) {
+        do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
+                        get_random_offset, get_random_loc,
+                        d, &(d->randomWriteTimings), &(d->randomWriteLatency),
+                        MADV_RANDOM, &(d->blocksRandomWritten));
+}
+
+////////////////////////////////////////////////////////////////////////////////////
 
 clock_t get_time()
 {
@@ -1364,48 +1149,24 @@ unsigned int get_random_seed()
 	unsigned int seed;
 	struct timeval r;
     
-	if(gettimeofday( &r, NULL ) == 0)
-	{
+	if(gettimeofday( &r, NULL ) == 0) {
 		seed = r.tv_usec;
-	}
-	else
-	{
-		seed = 0x12345678;
+	} else {
+		seed = 0xDEADBEEF;
 	}
 
 	return seed;
 }
 
-inline const TIO_off_t get_random_offset(const TIO_off_t max, unsigned int *seed)
-{
-#if (RAND_MAX < 2147483647)
-	unsigned long rr_max = RAND_MAX;
-#endif
+inline const TIO_off_t get_random_number(const TIO_off_t max, unsigned int *seed) {
 	unsigned long rr = rand_r(seed);
 
-/* 
-   This should fix bug in glibc < 2.1.3 which returns too high
-   random numbers
-*/
-	if( rr > RAND_MAX )
-	{
-		rr &= RAND_MAX;
-	}
-/*
-  This is for unixes having 15bit RAND_MAX :)
-  The whole random stuff would need rethinking.
-*/
+        // if it doesn't give us enough random bits, add some more
+        if(rr < max) {
+	        rr |= rand_r(seed) << 16;
+        }
 
-#if (RAND_MAX < 2147483647)
-	rr |= rand_r(seed) << 16;
-	rr_max = rr_max << 16;
-#endif
-
-#if 0
-	return (TIO_off_t) ((double)(max) * rr / (rr_max + 1.0));
-#else
 	return (TIO_off_t) (rr % max);
-#endif
 }
 
 void timer_init(Timings *t)

@@ -36,11 +36,6 @@
 #endif
 #endif
 
-#if (USE_LARGEFILES && USE_MMAP)
-#warning LARGEFILES and USE_MMAP does not currently work on 32-bit architectures, may need to remove USE_MMAP from Makefile
-#endif
-
-
 #ifdef LONG_OPTIONS
 #include <getopt.h>
 #endif
@@ -121,7 +116,7 @@ typedef struct {
     
 	char             fileName[KBYTE];
 	TIO_off_t        fileSizeInMBytes;
-	TIO_off_t        fileOffset;
+	TIO_off_t        fileOffset;            // used in the "raw drives" case, offset into device, 0 otherwise
 	unsigned long    numRandomOps;
 
 	unsigned long    blockSize;
@@ -191,5 +186,14 @@ typedef struct {
 	int      debugLevel;
 
 } ArgumentOptions;
+
+#define MIN(a, b)  (((a) < (b)) ? (a) : (b))
+#define MMAP_CHUNK_SIZE 1*GB
+
+typedef void               (*file_io_function)     (int fd, TIO_off_t offset, ThreadData *d);
+typedef void               (*mmap_io_function)     (void *loc, ThreadData *d);
+
+typedef TIO_off_t          (*file_offset_function) (TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+typedef void *             (*mmap_loc_function)    (void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
 
 #endif /* CONSTANTS_H */
