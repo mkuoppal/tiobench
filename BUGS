@@ -1,0 +1,5 @@
+- Large File Support is not working correctly in Sun Solaris
+  mainly the seek test is broken.
+
+- cpu resource counting is totally broken in Solaris after
+  the PTHREAD_SCOPE_SYSTEM change

@@ -1,0 +1,5 @@
+- man page
+- lots of testing of new features, most notably -DLARGEFILES
+- option for consistency checking data (md5sum or crc32)
+- thread creation overhead time should be removed from measured time.
+  this however is rather small if there are not lots of threads.
