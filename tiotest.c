@@ -1099,11 +1099,11 @@ void *get_random_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned 
 //
 
 void do_mmap_read_operation(void *loc, ThreadData *d) {
-        memcpy(loc, d->buffer, d->blockSize);
+        memcpy(d->buffer, loc, d->blockSize);
 }
 
 void do_mmap_write_operation(void *loc, ThreadData *d) {
-        memcpy(d->buffer, loc, d->blockSize);
+        memcpy(loc, d->buffer, d->blockSize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
