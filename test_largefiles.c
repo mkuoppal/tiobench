@@ -26,6 +26,9 @@
 #define LARGEFILE_SIZE (TIO_off_t)5*GB
 #define CHUNK_SIZE (TIO_off_t)1*GB
 
+#define TEST_DATA1 (int)0xCAFEBABE
+#define TEST_DATA2 (int)0xDEADBEEF
+
 static const char* versionStr = "$Id$ (C) 2003 tiobench team <http://tiobench.sf.net/>";
 
 void print_version()
@@ -40,6 +43,9 @@ int main(int argc, char *argv[])
     int rc;
     void *file_loc;
     TIO_off_t offset;
+    TIO_off_t offset_ret;
+    int data;
+    ssize_t count;
 
     printf("unlink()ing large test file %s\n", LARGEFILE_NAME);
     rc = unlink(LARGEFILE_NAME);
@@ -51,7 +57,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    printf( xstr(TIO_ftruncate) "()'ing large test file to size %Ld\n", LARGEFILE_SIZE);
+    printf( xstr(TIO_ftruncate) "()'ing large test file to size %Lx\n", LARGEFILE_SIZE);
     rc = TIO_ftruncate(fd,LARGEFILE_SIZE); /* pre-allocate space */
     if(rc != 0) 
     {
@@ -61,7 +67,45 @@ int main(int argc, char *argv[])
 
     for(offset = (TIO_off_t)0; offset + CHUNK_SIZE <= LARGEFILE_SIZE; offset += CHUNK_SIZE) {
 
-        printf(xstr(TIO_mmap) "()ing chunk of size %Ld at offset %Ld\n", CHUNK_SIZE, offset);
+        printf(xstr(TIO_lseek) "()ing to offset %Lx\n", offset);
+        offset_ret = TIO_lseek(fd, offset, SEEK_SET);
+        if (offset_ret != offset) {
+            perror("Error " xstr(TIO_lseek) "()ing");
+            exit(-1);
+        }
+
+        printf("read()ing a chunk of data\n");
+        count = read(fd, &data, sizeof(data));
+        if (count != sizeof(data)) {
+            fprintf(stderr, "Error read()ing, %d byte(s) read (!= %d)\n", count, sizeof(data));
+            exit(-1);
+        }
+        if (data != 0) {
+            fprintf(stderr, "Error read()ing, data was not null (was %x)\n", data);
+            exit(-1);
+        }
+
+        printf(xstr(TIO_pread)"()ing a data value\n");
+        count = TIO_pread(fd, &data, sizeof(data), offset);
+        if (count != sizeof(data)) {
+            fprintf(stderr, "Error " xstr(TIO_pread) "()ing, %d byte(s) read (!= %d)\n", count, sizeof(data));
+            exit(-1);
+        }
+        if (data != 0) {
+            fprintf(stderr, "Error " xstr(TIO_pread) "()ing, data was not null (was %x)\n", data);
+            exit(-1);
+        }
+
+        data = TEST_DATA1;
+        printf(xstr(TIO_pwrite)"()ing a test data value (%x)\n", TEST_DATA1);
+        count = TIO_pwrite(fd, &data, sizeof(data), offset);
+        if (count != sizeof(data)) {
+            fprintf(stderr, "Error " xstr(TIO_pwrite) "()ing, %d bytes written (!= %d)\n", count, sizeof(data));
+            exit(-1);
+        }
+        data = 0;
+
+        printf(xstr(TIO_mmap) "()ing chunk of size %Lx at offset %Lx\n", CHUNK_SIZE, offset);
         file_loc = TIO_mmap((caddr_t )0, CHUNK_SIZE,
                  PROT_READ | PROT_WRITE, MAP_SHARED, fd, (TIO_off_t)offset);
         if (file_loc == MAP_FAILED) {
@@ -69,26 +113,51 @@ int main(int argc, char *argv[])
             exit(-1);
         }
 
-        printf("  madvise()ing to MADV_RANDOM\n");
-        rc = madvise(file_loc,CHUNK_SIZE,MADV_RANDOM);
-        if (rc != 0) {
-            perror("Error madvise()ing memory area #1");
-            exit(-1);
-        }
-
-        printf("  madvise()ing to MADV_SEQUENTIAL\n");
+        printf("madvise()ing to MADV_SEQUENTIAL\n");
         rc = madvise(file_loc,CHUNK_SIZE,MADV_SEQUENTIAL);
         if (rc != 0) {
-            perror("Error madvise()ing memory area #1");
+            perror("Error madvise()ing memory area");
             exit(-1);
         }
 
-        printf("  munmap()ing chunk\n");
+        printf("checking for test data chunk (%x) in memory map\n", TEST_DATA1);
+        data = *((int *)file_loc);
+        if (data != TEST_DATA1) {
+            fprintf(stderr, "Error, test data was wrong (%x)\n", data);
+            exit(-1);
+        }
+        data = 0;
+
+        printf("writing test data chunk (%x) in memory map\n", TEST_DATA2);
+        /* the +1 is 4 bytes ahead thanks to pointer arithmetic */
+        *((int *)file_loc+1) = TEST_DATA2;
+
+        printf("msync()ing\n");
+        rc = msync(file_loc,CHUNK_SIZE,MS_SYNC);
+        if (rc != 0) {
+            perror("Error msync()ing memory area");
+            exit(-1);
+        }
+
+        printf("munmap()ing chunk\n");
         rc = munmap(file_loc,CHUNK_SIZE);
         if (rc != 0) {
             perror("Error munmap()ing memory area");
             exit(-1);
         }
+
+        printf(xstr(TIO_pread)"()ing a data value, checking value == %x\n", TEST_DATA2);
+        count = TIO_pread(fd, &data, sizeof(data), offset+sizeof(data));
+        if (count != sizeof(data)) {
+            fprintf(stderr, "Error " xstr(TIO_pread) "()ing, %d byte(s) read (!= %d)\n", count, sizeof(data));
+            exit(-1);
+        }
+        if (data != TEST_DATA2) {
+            fprintf(stderr, "Error " xstr(TIO_pread) "()ing, data was wrong (was %x)\n", data);
+            exit(-1);
+        }
+
+        printf("\n");
     }
 
     printf("unlink()ing large test file %s\n", LARGEFILE_NAME);
