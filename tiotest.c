@@ -974,12 +974,12 @@ void* do_write_test( ThreadData *d )
 	if (!args.rawDrives) {
 	        if (args.debugLevel >= LEVEL_DEBUG)
 	        {
-		        fprintf(stderr, "calling ftruncate() on file descriptor\n");
+		        fprintf(stderr, "calling " xstr(TIO_ftruncate) "() on file descriptor\n");
 		        fflush(stderr);
 	        }
-		rc = ftruncate(fd,bytesize); /* pre-allocate space */
+		rc = TIO_ftruncate(fd,bytesize); /* pre-allocate space */
 	        if(rc != 0) {
-		        perror("ftruncate() failed");
+		        perror(xstr(TIO_ftruncate) "() failed");
 		        close(fd);
 		        return 0;
                 }
