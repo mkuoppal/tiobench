@@ -86,12 +86,16 @@ typedef off64_t        TIO_off_t;
 #define TIO_lseek      lseek64
 #define TIO_mmap       mmap64
 #define TIO_ftruncate  ftruncate64
+#define TIO_pread      pread64
+#define TIO_pwrite     pwrite64
 #define OFFSET_FORMAT  "%Lx"
 #else
 typedef off_t          TIO_off_t;
 #define TIO_lseek      lseek
 #define TIO_mmap       mmap
 #define TIO_ftruncate  ftruncate
+#define TIO_pread      pread
+#define TIO_pwrite     pwrite
 #define OFFSET_FORMAT  "%lx"
 #endif
 
