@@ -27,6 +27,7 @@ sub usage {
             "[--threads NumberOfThreads]+\n\t",
             "[--dump] (dump in Data::Dumper format, no report)\n\t",
             "[--progress] (monitor progress with Term::ProgressBar)\n\t",
+            "[--timeout TimeoutInSeconds]\n\t",
             "[--debug DebugLevel]\n\n",
    "+ means you can specify this option multiple times to cover multiple\n",
    "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
@@ -68,6 +69,7 @@ my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
 my $identifier;    my $debug;       my $dump;         my $progress;
+my $timeout;
 
 # option parsing
 GetOptions("dir=s@",\@dirs,
@@ -79,11 +81,14 @@ GetOptions("dir=s@",\@dirs,
            "help",\$help,
            "nofrag",\$nofrag,
            "debug=i",\$debug,
+           "timeout=i",\$timeout,
            "dump",\$dump,
            "progress",\$progress,
            "threads=i@",\@threads);
 
 &usage if $help || $Getopt::Long::error;
+
+my $start_time = time if $timeout;
 
 ### DEFAULT VALUES
 $num_runs=1 unless $num_runs && $num_runs > 0;
@@ -155,6 +160,7 @@ if ($progress) {
 }
 
 # run all the possible combinations/permutations/whatever
+OUTER:
 foreach $dir (@dirs) {
    foreach $size (@sizes) {
       foreach $block (@blocks) {
@@ -181,7 +187,6 @@ foreach $dir (@dirs) {
                   $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
                }
                close(TIOTEST);
-               $progressbar->update(++$total_runs_completed) if $progress;
             }
             for my $field ('read','rread','write','rwrite') {
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
@@ -194,6 +199,11 @@ foreach $dir (@dirs) {
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
                   ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
+            }
+            $progressbar->update(++$total_runs_completed) if $progress;
+            if($timeout && (time > ($start_time + $timeout))) {
+               print STDERR "Aborting tiotest runs, timeout of $timeout seconds has been reached\n";
+               last OUTER;
             }
          }
       }
@@ -210,7 +220,7 @@ if ($dump) {
 print "
 Unit information
 ================
-File size = megabytes
+File size = megabytes (2^20 bytes, 1,048,576 bytes)
 Blk Size  = bytes
 Rate      = megabytes per second
 CPU%      = percentage of CPU used during the test
@@ -233,7 +243,7 @@ foreach my $title ('SEQ_READS', 'RAND_READS', 'SEQ_WRITES', 'RAND_WRITES') {
    foreach $size (@sizes) {
       foreach $block (@blocks) {
          foreach $thread (@threads) {
-            write;
+            write if defined($stat_data{$identifier}{$thread}{$size}{$block});
          }
       }
    }
