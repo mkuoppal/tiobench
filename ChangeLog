@@ -120,7 +120,7 @@
 
 2000-03-21	 Mika Kuoppala <miku@iki.fi>
 
-	* 0.29	 - random writes added
+	* 0.29pre1 - random write testing added
 	- project name change to tiobench :)
 
 2000-03-21	 James Manning <jmm@computer.org>
