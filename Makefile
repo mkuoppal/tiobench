@@ -17,7 +17,8 @@ CFLAGS=-O2 -Wall
 LINK=gcc
 EXE=tiotest
 PROJECT=tiobench
-VERSION=`egrep "tiotest v[0-9]+.[0-9]+" tiotest.c | cut -d " " -f 7 | sed "s/v//g"`
+# do it once instead of each time referenced
+VERSION=$(shell egrep "tiotest v[0-9]+.[0-9]+" tiotest.c | cut -d " " -f 7 | sed "s/v//g")
 DISTNAME=$(PROJECT)-$(VERSION)
 INSTALL=install
 PREFIX=/usr/local
@@ -43,7 +44,7 @@ clean:
 
 dist:
 	ln -s . $(DISTNAME)
-	tar -zcvf $(DISTNAME).tar.gz $(DISTNAME)/*.c $(DISTNAME)/*.h $(DISTNAME)/Makefile $(DISTNAME)/COPYING $(DISTNAME)/README $(DISTNAME)/TODO $(DISTNAME)/ChangeLog $(DISTNAME)/BUGS $(DISTNAME)/tiobench.pl $(DISTNAME)/scripts
+	tar -zcvf $(DISTNAME).tar.gz $(DISTNAME)/*.c $(DISTNAME)/*.h $(DISTNAME)/Makefile $(DISTNAME)/COPYING $(DISTNAME)/README $(DISTNAME)/TODO $(DISTNAME)/ChangeLog $(DISTNAME)/BUGS $(DISTNAME)/tiobench.pl $(DISTNAME)/tiosum.pl $(DISTNAME)/scripts
 	rm $(DISTNAME)
 
 install:
