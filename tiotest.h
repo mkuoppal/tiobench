@@ -79,6 +79,7 @@
 #define DEFAULT_RANDOM_OPS     1000
 #define DEFAULT_DIRECTORY      "."
 #define DEFAULT_BLOCKSIZE      (4*KBYTE)
+#define DEFAULT_RAW_OFFSET     0
 
 #define TRUE                   1
 #define FALSE                  0
@@ -167,6 +168,8 @@ typedef struct {
 	int	 rawDrives;
 	int      consistencyCheckData;
 	int      showLatency;
+	long	 threadOffset;
+	int	 useThreadOffsetForFirstThread;
 	
 	int	 testsToRun[TESTS_COUNT];
 	int	 runRandomWrite;

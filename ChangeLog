@@ -151,4 +151,7 @@
 	(thread creation overhead time is removed from measured time) +
 	some minor changes (O_SYNC support, extended command line, etc.)
 
-	
+2001-02-13       Vladislav Bolkhovitine <vlad@sw.com.sg>
+
+	* 0.3.3 - fixed sequential writing + added some input parameters
+	check + added -o and -O options for raw devices.

@@ -23,7 +23,7 @@
 #include "tiotest.h"
 #include "crc32.h"
 
-static const char* versionStr = "tiotest v0.3.2 (C) 1999-2000 Mika Kuoppala <miku@iki.fi>";
+static const char* versionStr = "tiotest v0.3.3 (C) 1999-2000 Mika Kuoppala <miku@iki.fi>";
 
 /* 
    This is global for easier usage. If you put changing data
@@ -64,6 +64,8 @@ int main(int argc, char *argv[])
 	args.syncWriting = 0;
 	args.rawDrives = 0;
 	args.showLatency = 1;
+	args.threadOffset = DEFAULT_RAW_OFFSET;
+	args.useThreadOffsetForFirstThread = 0;
 	
 	for(i = 0; i < TESTS_COUNT; i++)
 		args.testsToRun[i] = 1;
@@ -85,6 +87,26 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
+inline void checkIntZero(int value, char *mess)
+{
+	if (value <= 0) 
+	{
+		printf(mess);
+		printf("Try 'tiotest -h' for more information.\n");
+		exit(1);
+	}
+}
+
+inline void checkLong(long value, char *mess)
+{
+	if (value < 0) 
+	{
+		printf(mess);
+		printf("Try 'tiotest -h' for more information\n");
+		exit(1);
+	}
+}
+
 void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 {
 	int c;
@@ -92,25 +114,28 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 
 	while (1)
 	{
-		c = getopt( argc, argv, "f:b:d:t:r:D:k:hLRTWSc");
+		c = getopt( argc, argv, "f:b:d:t:r:D:k:o:hLRTWSOc");
 
 		if (c == -1)
 			break;
 	
 		switch (c)
 		{
-
 		case 'f':
 			args->fileSizeInMBytes = atoi(optarg);
+			checkIntZero(args->fileSizeInMBytes, "Wrong file size\n");
 			break;
 	    
 		case 'b':
 			args->blockSize = atoi(optarg);
+			checkIntZero(args->blockSize, "Wrong block size\n");
 			break;
 	    
 		case 'd':
-			if (args->pathsCount < MAX_PATHS) {
-				if (!once) {
+			if (args->pathsCount < MAX_PATHS) 
+			{
+				if (!once) 
+				{
 					args->pathsCount = 0;           
 					once = 1;
 				}
@@ -120,10 +145,12 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 	    
 		case 't':
 			args->numThreads = atoi(optarg);
+			checkIntZero(args->numThreads, "Wrong number of threads\n");
 			break;
 	    
 		case 'r':
 			args->numRandomOps = atoi(optarg);
+			checkIntZero(args->numRandomOps, "Wrong number of random I/O operations\n");
 			break;
 	    
 	    	case 'L':
@@ -157,22 +184,31 @@ void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 		case 'D':
 			args->debugLevel = atoi(optarg);
 			break;
+		
+		case 'o':
+			args->threadOffset = atol(optarg);
+			checkLong(args->threadOffset, "Wrong offset between threads\n");
+			break;
+			
+		case 'O':
+			args->useThreadOffsetForFirstThread = TRUE;
+			break;
 			
 		case 'k':
 		{
 			int i = atoi(optarg);
-			if (i < TESTS_COUNT)
+			if (i < TESTS_COUNT) 
 			{
 				args->testsToRun[i] = 0;
 				break;
 			}
 			else
-				printf("Wrong test number. ");
+				printf("Wrong test number %d\n", i);
+			/* Go through */
 		}
-
 		case '?':
-		default:	    
-			printf("Try 'tiotest -h' for more information.\n");
+		default:
+			printf("Try 'tiotest -h' for more information\n");
 			exit(1);
 			break;
 		}
@@ -202,9 +238,18 @@ void initialize_test( ThreadTest *d )
 	/* Initializing thread data */
 	if (args.rawDrives) 
 	{
-		offs = args.fileSizeInMBytes * MBYTE / PAGE_SIZE;
-		offs *= PAGE_SIZE;
-		args.fileSizeInMBytes = offs / MBYTE;
+		if (args.threadOffset != 0) 
+		{
+			offs = (args.threadOffset + args.fileSizeInMBytes) * MBYTE;
+			if (args.useThreadOffsetForFirstThread) 
+			{
+				int k;
+				for(k = 0; k < KBYTE; k++)
+					cur_offs[k] = args.threadOffset * MBYTE;
+			}
+		}
+		else
+			offs = args.fileSizeInMBytes * MBYTE;
 	}
 	else
 		offs = 0;
@@ -299,18 +344,24 @@ void print_help_and_exit()
 
 	print_option("-r", "Random I/O operations per thread", 
 		     my_int_to_string(DEFAULT_RANDOM_OPS));
+		     
+	print_option("-o", "Offset in Mb on disk between threads. Use with -R option",
+		     0);
 	
 	print_option("-k", "Skip test number n. Could be used several times.", 0);	  
 	
 	print_option("-L", "Hide latency output", 0);	  
 	
-	print_option("-R", "Use raw drives", 0);
+	print_option("-R", "Use raw devices. Set device name with -d option", 0);
 
 	print_option("-T", "More terse output", 0);
 
 	print_option("-W", "Do writing phase sequentially", 0);
 	
 	print_option("-S", "Do writing synchronously", 0);
+	
+	print_option("-O", "Use offset from -o option for first thread. Use with -R option",
+		     0);
 
 	print_option("-c", 
 		     "Consistency check data (will slow io and raise cpu%)",
@@ -392,7 +443,8 @@ void do_tests( ThreadTest *thisTest )
 			"Waiting random read threads to finish...");
 }
 
-typedef struct {
+typedef struct 
+{
 	volatile int *child_status;
 	TestFunc fn;
 	ThreadData *d;
@@ -401,8 +453,12 @@ typedef struct {
 void* start_proc( void *data )
 {
 	StartData *sd = (StartData*)data;
-	*sd->child_status = getpid();
-	while (*sd->child_status) sleep(0);
+	/* make sure child_status is a valid memory location before
+	   writing and reading it */
+	if(sd->child_status != NULL) {
+		*(sd->child_status) = getpid();
+		while (*sd->child_status) sleep(0);
+	}
 	return sd->fn(sd->d);
 }
 
@@ -413,7 +469,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 	volatile int *child_status;
 	StartData *sd;
 	int synccount;
-	struct timeval tv1, tv2;
+	volatile int start = 0; // still needed?
 	
 	child_status = (volatile int *)calloc(test->numThreads, sizeof(int));
 	if (child_status == NULL) {
@@ -433,6 +489,10 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 		sd[i].child_status = &child_status[i];
 		sd[i].fn = Tests[testCase];
 		sd[i].d = &test->threads[i];
+		if(sequential)
+			sd[i].child_status = NULL;
+		else
+			sd[i].child_status = &start;
 		if( pthread_create(
 			&(test->threads[i].thread), 
 			&(test->threads[i].thread_attr), 
@@ -455,40 +515,47 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 		}
 	}
 	
-	gettimeofday(&tv1, NULL);
-	do {
-		synccount = 0;
-		for(i = 0; i < test->numThreads; i++) 
-			if (child_status[i]) 
-				synccount++;
-		if (synccount == test->numThreads) 
-			break;
-		sleep(1);
-		gettimeofday(&tv2, NULL);
-	} while ((tv2.tv_sec - tv1.tv_sec) < 30);
+	if(sequential)
+		timer_stop(t);
+	else {
+		struct timeval tv1, tv2;
+		gettimeofday(&tv1, NULL);
+		do {
+			synccount = 0;
+			for(i = 0; i < test->numThreads; i++) 
+				if (child_status[i]) 
+					synccount++;
+			if (synccount == test->numThreads) 
+				break;
+			sleep(1);
+			gettimeofday(&tv2, NULL);
+		} while ((tv2.tv_sec - tv1.tv_sec) < 30);
 
-	if (synccount != test->numThreads) {
-		printf("Unable to start %d threads (started %d)\n", 
-			test->numThreads, synccount);
-		return;
+		if (synccount != test->numThreads) {
+			printf("Unable to start %d threads (started %d)\n", 
+				test->numThreads, synccount);
+			start = 1;
+			wait_for_threads(test);
+			free((int*)child_status);
+			free(sd);
+			return;
+		}
+
+		if(args.debugLevel > 4)
+		{
+			printf("Created %d threads\n", i);
+			fprintf(stderr, debugMessage);
+			fflush(stderr);
+		}
+		
+		timer_start(t);
+
+		start = 1;
+
+		wait_for_threads(test);
+	    
+		timer_stop(t);
 	}
-
-	if(args.debugLevel > 4)
-	{
-		printf("Created %d threads\n", i);
-		fprintf(stderr, debugMessage);
-		fflush(stderr);
-	}
-	
-	timer_start(t);
-
-	for(i = 0; i < test->numThreads; i++)
-		child_status[i] = 0;
-    
-	wait_for_threads(test);
-    
-	timer_stop(t);
-	
 	free((int*)child_status);
 	free(sd);
     
@@ -858,7 +925,8 @@ void* do_write_test( ThreadData *d )
 #endif
     
 	fd = open(d->fileName, openFlags, 0600 );
-	if(fd == -1) {
+	if(fd == -1) 
+	{
 		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
 		return 0;
 	}
@@ -874,7 +942,8 @@ void* do_write_test( ThreadData *d )
 		ftruncate(fd,bytesize); /* pre-allocate space */
 	file_loc=mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
 		d->fileOffset);
-	if(file_loc == MAP_FAILED) {
+	if(file_loc == MAP_FAILED) 
+	{
 		perror("Error mmap()ing file");
 		close(fd);
 		return 0;
@@ -956,7 +1025,8 @@ void* do_random_write_test( ThreadData *d )
 #endif
 
 	fd = open(d->fileName, openFlags);
-	if(fd == -1) {
+	if(fd == -1) 
+	{
 		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
 		return 0;
 	}
@@ -1047,7 +1117,8 @@ void* do_read_test( ThreadData *d )
 #endif
 
 	fd = open(d->fileName, openFlags);
-	if(fd == -1) {
+	if(fd == -1) 
+	{
 		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
 		return 0;
 	}
@@ -1060,7 +1131,8 @@ void* do_read_test( ThreadData *d )
 
 #ifdef USE_MMAP
 	file_loc=mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
-	if(file_loc == MAP_FAILED) {
+	if(file_loc == MAP_FAILED) 
+	{
 		perror("Error mmap()ing file");
 		close(fd);
 		return 0;
@@ -1150,7 +1222,8 @@ void* do_random_read_test( ThreadData *d )
 #endif
 
 	fd = open(d->fileName, openFlags);
-	if(fd == -1) {
+	if(fd == -1) 
+	{
 		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
 		return 0;
 	}
