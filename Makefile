@@ -7,9 +7,9 @@ CFLAGS=-O2 -Wall
 # This enables support for 64bit file offsets, allowing
 # possibility to test with files larger than (2^31-1) bytes.
 
-DEFINES=-DLARGEFILES -DUSE_MMAP -DUSE_MADVISE
+DEFINES=-DUSE_LARGEFILES -DUSE_MMAP -DUSE_MADVISE
 
-#DEFINES=-DLARGEFILES
+#DEFINES=-DUSE_LARGEFILES
 #DEFINES=-DUSE_MMAP 
 #-DUSE_MADVISE
 
@@ -21,7 +21,8 @@ DEFINES=-DLARGEFILES -DUSE_MMAP -DUSE_MADVISE
 # DEFINES=-DGETRUSAGE_PROCESS_SCOPE
 
 LINK=gcc
-EXE=tiotest
+TIOTEST=tiotest
+TEST_LARGE=test_largefiles
 PROJECT=tiobench
 # do it once instead of each time referenced
 VERSION=$(shell egrep "tiotest v[0-9]+.[0-9]+" tiotest.c | cut -d " " -f 7 | sed "s/v//g")
@@ -31,7 +32,7 @@ PREFIX=/usr/local
 BINDIR=$(PREFIX)/bin
 DOCDIR=/usr/local/doc/$(DISTNAME)
 
-all: $(EXE)
+all: $(TEST_LARGE) $(TIOTEST)
 
 crc32.o: crc32.c crc32.h
 	$(CC) -c $(CFLAGS) $(DEFINES) crc32.c -o crc32.o
@@ -39,14 +40,20 @@ crc32.o: crc32.c crc32.h
 tiotest.o: tiotest.c tiotest.h crc32.h crc32.c Makefile
 	$(CC) -c $(CFLAGS) $(DEFINES) tiotest.c -o tiotest.o
 
-$(EXE): tiotest.o crc32.o
-	$(LINK) -o $(EXE) tiotest.o crc32.o -lpthread
+test_largefiles.o: tiotest.h test_largefiles.c
+	$(CC) -c -DUSE_LARGEFILES -DUSE_MMAP -DUSE_MADVISE $(CFLAGS) $(DEFINES) test_largefiles.c -o test_largefiles.o
+
+$(TIOTEST): tiotest.o crc32.o
+	$(LINK) -o $(TIOTEST) tiotest.o crc32.o -lpthread
 	@echo
 	@echo "./tiobench.pl --help for usage options"
 	@echo
 
+$(TEST_LARGE): test_largefiles.o
+	$(LINK) -o $(TEST_LARGE) test_largefiles.o
+
 clean:
-	rm -f tiotest.o crc32.o $(EXE) core
+	rm -f test_largefiles.o tiotest.o crc32.o $(TIOTEST) $(TEST_LARGE) core
 
 dist:
 	ln -s . $(DISTNAME)

@@ -30,10 +30,12 @@ static ArgumentOptions args;
 static void * aligned_alloc(const ssize_t size)
 {
 	caddr_t a;
-	a = tmmap((caddr_t )0, size, 
-		 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-	if (a == MAP_FAILED)
-		return NULL;
+	a = TIO_mmap((caddr_t )0, size, 
+		 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, (TIO_off_t)0);
+	if (a == MAP_FAILED) {
+		perror("Error " xstr(TIO_mmap) "()ing anonymous memory chunk");
+		exit(-1);
+        }
 	return a;
 }
 
@@ -82,7 +84,7 @@ int main(int argc, char *argv[])
 
 static void checkValidFileSize(const int value)
 {
-#ifndef LARGEFILES
+#ifndef USE_LARGEFILES
 	if (value > MAXINT / (1024*1024)) 
 	{
 		fprintf(stderr, "Specified file size too large, please specify something under 2GB\n");
@@ -228,7 +230,7 @@ void initialize_test( ThreadTest *d )
 {
 	int i;
 	int pathLoadBalIdx = 0;
-	toff_t offs, cur_offs[KBYTE] = {0};
+	TIO_off_t offs, cur_offs[KBYTE] = {0};
 
 	memset( d, 0, sizeof(ThreadTest) );
     
@@ -239,7 +241,7 @@ void initialize_test( ThreadTest *d )
 		d->threads = calloc( d->numThreads, sizeof(ThreadData) );
 		if( d->threads == NULL )
 		{
-			perror("Error allocating memory");
+			perror("Error calloc()ing thread data memory");
 			exit(-1);
 		}
 	}
@@ -292,11 +294,6 @@ void initialize_test( ThreadTest *d )
 							  PTHREAD_SCOPE_SYSTEM);
 
 		d->threads[i].buffer = aligned_alloc( d->threads[i].blockSize );
-		if( d->threads[i].buffer == NULL )
-		{
-			perror("Error allocating memory");
-			exit(-1);
-		}
 
 		if( args.consistencyCheckData )
 		{
@@ -484,14 +481,14 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 	child_status = (volatile int *)calloc(test->numThreads, sizeof(int));
 	if (child_status == NULL) 
 	{
-		perror("Error allocating memory");
+		perror("Error calloc()ing thread status memory");
 		return;
 	}
 	
 	sd = (StartData*)calloc(test->numThreads, sizeof(StartData));
 	if (sd == NULL) 
 	{
-		perror("Error allocating memory");
+		perror("Error calloc()ing thread start data memory");
 		free((int*)child_status);
 		return;
 	}
@@ -514,7 +511,7 @@ void do_test( ThreadTest *test, int testCase, int sequential,
 						   start_proc, 
 						   (void *)&sd[i]))
 		{
-			perror("Error creating threads");
+			perror("Error from pthread_create()");
 			free((int*)child_status);
 			free(sd);
 			exit(-1);
@@ -900,57 +897,51 @@ void print_results( ThreadTest *d )
 	}
 }
 
-void report_seek_error(toff_t offset, unsigned long wr)
+#define REPORT_SEEK_ERROR(name, offset, seeks)       \
+        do {                                    \
+	        char buf[1024];                 \
+	        sprintf(buf,                    \
+		        "Error in " name ", offset = " OFFSET_FORMAT ", seeks = %ld: ",     \
+		        offset, seeks );        \
+	        perror(buf);                    \
+        } while (0);
+
+#define REPORT_IO_ERROR(name, offset, bytes, seeks)       \
+        do {                                    \
+	        char buf[1024];                 \
+	        sprintf(buf,                    \
+		        "Error in " name ", offset = " OFFSET_FORMAT ", bytes = %d, seeks = %ld: ",     \
+		        offset, bytes, seeks ); \
+	        perror(buf);                    \
+        } while (0);
+
+
+void report_seek_error(TIO_off_t offset, unsigned long seeks)
 {
-	char buf[1024];
-	sprintf(buf, 
-#ifdef LARGEFILES			
-		"Error in seek, offset= %Ld, seeks = %ld: ", 
-#else				
-		"Error in seek, offset = %ld, seeks = %ld:",
-#endif				
-		offset, wr );
-	perror(buf);
+        REPORT_SEEK_ERROR("seek", offset, seeks);
 }
 
-void report_random_write_error(toff_t offset, ssize_t bytesWritten, unsigned long wr)
+void report_random_write_error(TIO_off_t offset, ssize_t bytesWritten, unsigned long seeks)
 {
-	char buf[1024];
-	sprintf(buf, 
-#ifdef LARGEFILES
-		"Error in randomwrite, off=%Ld, read=%d, seeks=%ld : ", 
-#else
-		"Error in randomwrite, off=%ld, read=%d, seeks=%ld : ",
-#endif
-		offset, bytesWritten, wr );
-		    
-	perror(buf);
+        REPORT_IO_ERROR("randomwrite", offset, bytesWritten, seeks);
 }
 
-void report_read_error(toff_t offset, ssize_t bytesRead, unsigned long rd)
+void report_read_error(TIO_off_t offset, ssize_t bytesRead, unsigned long seeks)
 {
-	char buf[1024];
-	sprintf(buf, 
-#ifdef LARGEFILES
-		"Error in seek/read, off=%Ld, read=%d, seeks=%ld : ", 
-#else
-		"Error in seek/read, off=%ld, read=%d, seeks=%ld : ",
-#endif
-		offset, bytesRead, rd );
-		    
-	perror(buf);
+        REPORT_IO_ERROR("seek/read", offset, bytesRead, seeks);
 }
 
 void* do_write_test( ThreadData *d )
 {
 	int     fd;
 	char    *buf = d->buffer;
-	toff_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
-	toff_t  i;
+	TIO_off_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
+	TIO_off_t  i;
 	int     openFlags;
 	
 #ifdef USE_MMAP
-	toff_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
+	int     rc;
+	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
 	void *file_loc;
 #endif
 
@@ -962,7 +953,7 @@ void* do_write_test( ThreadData *d )
 	if( args.syncWriting )
 		openFlags |= O_SYNC;
 
-#ifdef LARGEFILES
+#ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
 #endif
     
@@ -975,24 +966,31 @@ void* do_write_test( ThreadData *d )
 
 	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, 
-#ifdef LARGEFILES			
-                                "do_write_test: initial seek %Lu\n", 
-#else				
-                                "do_write_test: initial seek %lu\n", 
-#endif				
-                                d->fileOffset);
+		fprintf(stderr, "do_write_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
 		fflush(stderr);
 	}
 	
 #ifdef USE_MMAP
-	if (!args.rawDrives) 
-		ftruncate(fd,bytesize); /* pre-allocate space */
-	file_loc=tmmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
+	if (!args.rawDrives) {
+	        if (args.debugLevel >= LEVEL_DEBUG)
+	        {
+		        fprintf(stderr, "calling ftruncate() on file descriptor\n");
+		        fflush(stderr);
+	        }
+		rc = ftruncate(fd,bytesize); /* pre-allocate space */
+	        if(rc != 0) {
+		        perror("ftruncate() failed");
+		        close(fd);
+		        return 0;
+                }
+        }
+
+	file_loc=TIO_mmap(NULL,bytesize,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
 		      d->fileOffset);
 	if(file_loc == MAP_FAILED) 
 	{
-		perror("Error mmap()ing file");
+                fprintf(stderr, "bytesize=" OFFSET_FORMAT ", fd=%d, offset=" OFFSET_FORMAT "\n", bytesize, fd, d->fileOffset);
+		perror("Error " xstr(TIO_mmap) "()ing data file");
 		close(fd);
 		return 0;
 	}
@@ -1002,7 +1000,7 @@ void* do_write_test( ThreadData *d )
 #endif
 
 #else
-	if( tlseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
 	{
 		report_seek_error(d->fileOffset, d->blocksRandomWritten);
 		close(fd);
@@ -1022,7 +1020,7 @@ void* do_write_test( ThreadData *d )
 #else
 		if( write( fd, buf, d->blockSize ) != d->blockSize )
 		{
-			perror("Error writing to file");
+			perror("Error write()ing to file");
 			break;
 		}
 #endif
@@ -1058,9 +1056,9 @@ void* do_random_write_test( ThreadData *d )
 {
 	int      i;
 	char     *buf = d->buffer;
-	toff_t   blocks=(d->fileSizeInMBytes*MBYTE/d->blockSize);
+	TIO_off_t   blocks=(d->fileSizeInMBytes*MBYTE/d->blockSize);
 	int      fd;
-	toff_t   offset;
+	TIO_off_t   offset;
 	ssize_t  bytesWritten;
 	int      openFlags = O_WRONLY;
 	
@@ -1069,7 +1067,7 @@ void* do_random_write_test( ThreadData *d )
 	if( args.syncWriting )
 		openFlags |= O_SYNC;
 
-#ifdef LARGEFILES
+#ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
 #endif
 
@@ -1082,17 +1080,11 @@ void* do_random_write_test( ThreadData *d )
 	
 	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, 
-#ifdef LARGEFILES			
-                                "do_random_test: initial seek %Lu\n", 
-#else				
-                                "do_random_test: initial seek %lu\n", 
-#endif				
-                                d->fileOffset);
+		fprintf(stderr, "do_random_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
 		fflush(stderr);
 	}
 	
-	if( tlseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
 	{
 		report_seek_error(d->fileOffset, d->blocksRandomWritten);
 		close(fd);
@@ -1115,7 +1107,7 @@ void* do_random_write_test( ThreadData *d )
 			fflush(stderr);
 		}
 
-		if( tlseek( fd, offset, SEEK_SET ) != offset )
+		if( TIO_lseek( fd, offset, SEEK_SET ) != offset )
 		{
 			report_seek_error(offset, d->blocksRandomWritten);
 			break;
@@ -1158,16 +1150,16 @@ void* do_read_test( ThreadData *d )
 {
 	char    *buf = d->buffer;
 	int     fd;
-	toff_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
-	toff_t  i;
+	TIO_off_t  blocks=(d->fileSizeInMBytes*MBYTE)/d->blockSize;
+	TIO_off_t  i;
 	int     openFlags = O_RDONLY;
  
 #ifdef USE_MMAP
-	toff_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
+	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
 	void *file_loc;
 #endif
 
-#ifdef LARGEFILES
+#ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
 #endif
 
@@ -1180,21 +1172,15 @@ void* do_read_test( ThreadData *d )
 	
 	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, 
-#ifdef LARGEFILES			
-                                "do_read_test: initial seek %Lu\n", 
-#else				
-                                "do_read_test: initial seek %lu\n", 
-#endif				
-                                d->fileOffset);
+		fprintf(stderr, "do_read_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
 		fflush(stderr);
 	}
 
 #ifdef USE_MMAP
-	file_loc=tmmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
+	file_loc=TIO_mmap(NULL,bytesize,PROT_READ,MAP_SHARED,fd,d->fileOffset);
 	if(file_loc == MAP_FAILED) 
 	{
-		perror("Error mmap()ing file");
+		perror("Error " xstr(TIO_mmap) "()ing file");
 		close(fd);
 		return 0;
 	}
@@ -1203,7 +1189,7 @@ void* do_read_test( ThreadData *d )
 	madvise(file_loc,bytesize,MADV_RANDOM);
 #  endif
 #else
-	if( tlseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
 	{
 		report_seek_error(d->fileOffset, 
 				  d->blocksRandomWritten);
@@ -1224,7 +1210,7 @@ void* do_read_test( ThreadData *d )
 #else
 		if( read( fd, buf, d->blockSize ) != d->blockSize )
 		{
-			perror("Error read from file");
+			perror("Error read()ing from file");
 			break;
 		}
 #endif
@@ -1270,15 +1256,15 @@ void* do_random_read_test( ThreadData *d )
 {
 	int      i;
 	char     *buf = d->buffer;
-	toff_t   blocks = (d->fileSizeInMBytes*MBYTE/d->blockSize);
+	TIO_off_t   blocks = (d->fileSizeInMBytes*MBYTE/d->blockSize);
 	int      fd;
-	toff_t   offset;
+	TIO_off_t   offset;
 	ssize_t  bytesRead;
 	int      openFlags = O_RDONLY;
 
 	unsigned int seed = get_random_seed();
 
-#ifdef LARGEFILES
+#ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
 #endif
 
@@ -1291,17 +1277,11 @@ void* do_random_read_test( ThreadData *d )
 	
 	if (args.debugLevel >= LEVEL_INFO)
 	{
-		fprintf(stderr, 
-#ifdef LARGEFILES			
-                                "do_random_read_test: initial seek %Lu\n", 
-#else				
-                                "do_random_read_test: initial seek %lu\n", 
-#endif				
-                                d->fileOffset);
+		fprintf(stderr, "do_random_read_test: initial seek " OFFSET_FORMAT "\n", d->fileOffset);
 		fflush(stderr);
 	}
 	
-	if( tlseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
+	if( TIO_lseek( fd, d->fileOffset, SEEK_SET ) != d->fileOffset )
 	{
 		report_seek_error(d->fileOffset, d->blocksRandomWritten);
 		close(fd);
@@ -1325,7 +1305,7 @@ void* do_random_read_test( ThreadData *d )
 			fflush(stderr);
 		}
 
-		if( tlseek( fd, offset, SEEK_SET ) != offset )
+		if( TIO_lseek( fd, offset, SEEK_SET ) != offset )
 		{
 			report_seek_error(offset, d->blocksRandomRead);
 			break;
@@ -1399,7 +1379,7 @@ unsigned int get_random_seed()
 	return seed;
 }
 
-inline const toff_t get_random_offset(const toff_t max, unsigned int *seed)
+inline const TIO_off_t get_random_offset(const TIO_off_t max, unsigned int *seed)
 {
 #if (RAND_MAX < 2147483647)
 	unsigned long rr_max = RAND_MAX;
@@ -1425,9 +1405,9 @@ inline const toff_t get_random_offset(const toff_t max, unsigned int *seed)
 #endif
 
 #if 0
-	return (toff_t) ((double)(max) * rr / (rr_max + 1.0));
+	return (TIO_off_t) ((double)(max) * rr / (rr_max + 1.0));
 #else
-	return (toff_t) (rr % max);
+	return (TIO_off_t) (rr % max);
 #endif
 }
 
@@ -1442,13 +1422,13 @@ void timer_start(Timings *t)
 
 	if(gettimeofday( &(t->startRealTime), NULL ))
 	{
-		perror("Error in gettimeofday\n");
+		perror("Error in timer_start from gettimeofday()\n");
 		exit(10);
 	}
 
 	if(getrusage( RUSAGE_SELF, &ru ))
 	{
-		perror("Error in getrusage\n");
+		perror("Error in timer_start from getrusage()\n");
 		exit(11);
 	}
 
@@ -1462,13 +1442,13 @@ void timer_stop(Timings *t)
 
 	if(gettimeofday( &(t->stopRealTime), NULL ))
 	{
-		perror("Error in gettimeofday\n");
+		perror("Error in timer_stop from gettimeofday()\n");
 		exit(10);
 	}
 
 	if( getrusage( RUSAGE_SELF, &ru ))
 	{
-		perror("Error in getrusage\n");
+		perror("Error in timer_stop from getrusage()\n");
 		exit(11);
 	}
 
