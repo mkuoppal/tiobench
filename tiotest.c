@@ -256,11 +256,11 @@ void initialize_test( ThreadTest *d )
 			{
 				int k;
 				for(k = 0; k < KBYTE; k++)
-					cur_offs[k] = args.threadOffset * MBYTE;
+					cur_offs[k] = (TIO_off_t)args.threadOffset * MBYTE;
 			}
 		}
 		else
-			offs = args.fileSizeInMBytes * MBYTE;
+			offs = (TIO_off_t)args.fileSizeInMBytes * MBYTE;
 	}
 	else
 		offs = 0;
