@@ -25,7 +25,7 @@ sub usage {
             "[--numruns NumberOfRuns]\n\t",
             "[--dir TestDir]+\n\t",
             "[--block BlkSizeInBytes]+\n\t",
-            "[--random NumberRandOpsPerThread]+\n\t",
+            "[--random NumberRandOpsAllThreads]+\n\t",
             "[--threads NumberOfThreads]+\n\n",
    "+ means you can specify this option multiple times to cover multiple\n",
    "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
@@ -134,9 +134,10 @@ foreach $dir (@dirs) {
    foreach $size (@sizes) {
       foreach $block (@blocks) {
          foreach $thread (@threads) {
+            my $thread_rand=int($random_ops/$thread);
             my $thread_size=int($size/$thread); $thread_size=1 if $thread_size==0;
             my $run_string = "$tiotest -t $thread -f $thread_size ".
-                             "-r $random_ops -b $block -d $dir -T";
+                             "-r $thread_rand -b $block -d $dir -T";
             $run_string .= " -W" if $nofrag;
             foreach $run_number (1..$num_runs) {
                my $prompt="Run #$run_number: $run_string";
