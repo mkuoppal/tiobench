@@ -56,15 +56,15 @@ int main(int argc, char *argv[])
 	args.numThreads = DEFAULT_THREADS;
 	args.numRandomOps = DEFAULT_RANDOM_OPS;
 	args.debugLevel = DEFAULT_DEBUG_LEVEL;
-	args.verbose = 0;
-	args.terse = 0;
-	args.use_mmap = 0;
-	args.consistencyCheckData = 0;
-	args.syncWriting = 0;
-	args.rawDrives = 0;
-	args.showLatency = 1;
+	args.verbose = FALSE;
+	args.terse = FALSE;
+	args.use_mmap = FALSE;
+	args.consistencyCheckData = FALSE;
+	args.syncWriting = FALSE;
+	args.rawDrives = FALSE;
+	args.showLatency = TRUE;
 	args.threadOffset = DEFAULT_RAW_OFFSET;
-	args.useThreadOffsetForFirstThread = 0;
+	args.useThreadOffsetForFirstThread = FALSE;
 	
 	for(i = 0; i < TESTS_COUNT; i++)
 		args.testsToRun[i] = 1;

@@ -52,7 +52,7 @@ my $LEVEL_DEBUG = 50;
 my $LEVEL_TRACE = 60;
 
 ### VARIABLES
-my @sizes;       my $size;      my @dirs;    my $dir;
+my @sizes;       my $size;      my @targets; my $dir;
 my @blocks;      my $block;     my @threads; my $thread;
 my $random_ops;  my %stat_data; my $area;    my $mem_size;
 
@@ -65,7 +65,7 @@ my $identifier;    my $debug;       my $dump;         my $progress;
 my $timeout;
 
 # option parsing
-GetOptions("dir=s@",\@dirs,
+GetOptions("target=s@",\@targets,
            "identifier=s",\$identifier,
            "size=i@",\@sizes,
            "block=i@",\@blocks,
@@ -85,7 +85,7 @@ my $start_time = time if $timeout;
 
 ### DEFAULT VALUES
 $num_runs=1 unless $num_runs && $num_runs > 0;
-@dirs=qw(.) unless @dirs;
+@targets=qw(.) unless @targets;
 @blocks=qw(4096) unless @blocks;
 @threads=qw(1 2 4 8) unless @threads;
 $random_ops=4000 unless $random_ops;
@@ -141,7 +141,7 @@ my $progressbar;
 
 if ($progress) {
    $total_runs = $num_runs    *
-                 scalar(@dirs) * 
+                 scalar(@targets) * 
                  scalar(@sizes) * 
                  scalar(@blocks) * 
                  scalar(@threads);
@@ -154,56 +154,68 @@ if ($progress) {
                                          });
 }
 
+my $targets_str = join '', map { " -d " . $_ } @targets;
+if(&all_devices(@targets)) {
+   print "All targets are devices\n"
+      if $debug >= $LEVEL_INFO;
+   $targets_str .= ' -R'; # add "raw devices" param
+} elsif(&all_directories(@targets)) {
+   print "All targets are directories\n"
+      if $debug >= $LEVEL_INFO;
+   # nothing to do here
+} else {
+   print STDERR "--target params must be either all devices or all directories\n";
+   exit(1);
+}
+
 # run all the possible combinations/permutations/whatever
 OUTER:
-foreach $dir (@dirs) {
-   foreach $size (@sizes) {
-      foreach $block (@blocks) {
-         foreach $thread (@threads) {
-            my $thread_rand=int($random_ops/$thread);
-            my $thread_size=int($size/$thread); $thread_size=1 if $thread_size==0;
-            my $run_string = "$tiotest -t $thread -f $thread_size ".
-                             "-r $thread_rand -b $block -d $dir -T";
-            $run_string .= " -W" if $nofrag;
-            $run_string .= " -D $debug" if $debug > 0;
-            foreach $run_number (1..$num_runs) {
-               print "Running: $run_string\n"
-                  if $debug >= $LEVEL_INFO;
-               open(TIOTEST,"$run_string |") or die "Could not run $tiotest";
+foreach $size (@sizes) {
+   foreach $block (@blocks) {
+      foreach $thread (@threads) {
+         my $thread_rand=int($random_ops/$thread);
+         my $thread_size=int($size/$thread); $thread_size=1 if $thread_size==0;
+         my $run_string = "$tiotest -t $thread -f $thread_size ".
+                          "-r $thread_rand -b $block $targets_str -T";
+         $run_string .= " -W" if $nofrag;
+         $run_string .= " -D $debug" if $debug > 0;
+         foreach $run_number (1..$num_runs) {
+            print "Running: $run_string\n"
+               if $debug >= $LEVEL_INFO;
+            open(TIOTEST,"$run_string |") or die "Could not run $tiotest";
 
-               while(my $line = <TIOTEST>) {
-                  next if $line =~ /^total/o; # this may be useful, but it's been ignored up to this point.
-                  print "Processing output line of $line"
-                     if $debug >= $LEVEL_INFO;
-                  my ($field,$amount,$time,$utime,$stime,$avglat,$maxlat,$pct_gt_2_sec,$pct_gt_10_sec)=split(/[:,]/, $line);
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} += $amount;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'}   += $time;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'}  += $utime;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'}  += $stime;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'avglat'} += $avglat;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'maxlat'} += $maxlat;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_2_sec'}  += $pct_gt_2_sec;
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
-               }
-               close(TIOTEST);
-               $progressbar->update(++$total_runs_completed) if $progress;
+            while(my $line = <TIOTEST>) {
+               next if $line =~ /^total/o; # this may be useful, but it's been ignored up to this point.
+               print "Processing output line of $line"
+                  if $debug >= $LEVEL_INFO;
+               my ($field,$amount,$time,$utime,$stime,$avglat,$maxlat,$pct_gt_2_sec,$pct_gt_10_sec)=split(/[:,]/, $line);
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} += $amount;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'}   += $time;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'}  += $utime;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'}  += $stime;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'avglat'} += $avglat;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'maxlat'} += $maxlat;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_2_sec'}  += $pct_gt_2_sec;
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'pct_gt_10_sec'} += $pct_gt_10_sec;
             }
-            for my $field ('read','rread','write','rwrite') {
-               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} /
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
-               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'} = 
-                  100 * ( $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'} +
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'} ) / 
-                  $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
-               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
-                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
-                  ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
-            }
-            if($timeout && (time > ($start_time + $timeout))) {
-               print STDERR "\nTimeout of $timeout seconds has been reached, aborting ($total_runs_completed of $total_runs runs completed)\n";
-               last OUTER;
-            }
+            close(TIOTEST);
+            $progressbar->update(++$total_runs_completed) if $progress;
+         }
+         for my $field ('read','rread','write','rwrite') {
+            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} /
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
+            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'} = 
+               100 * ( $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'} +
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'} ) / 
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
+            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
+               ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
+               ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'}/100+0.00001));
+         }
+         if($timeout && (time > ($start_time + $timeout))) {
+            print STDERR "\nTimeout of $timeout seconds has been reached, aborting ($total_runs_completed of $total_runs runs completed)\n";
+            last OUTER;
          }
       }
    }
@@ -259,7 +271,7 @@ sub usage {
             "[--nofrag] (don't write fragmented files)\n\t",
             "[--size SizeInMB]+\n\t",
             "[--numruns NumberOfRuns]\n\t",
-            "[--dir TestDir]+\n\t",
+            "[--target DirOrDisk]+\n\t",
             "[--block BlkSizeInBytes]+\n\t",
             "[--random NumberRandOpsAllThreads]+\n\t",
             "[--threads NumberOfThreads]+\n\t",
@@ -273,6 +285,9 @@ sub usage {
    "\n",
    "--numruns specifies over how many runs each test combination of\n",
    "parameters should be averaged\n";
+   "\n",
+   "--target parameters are all tested in parallel on each tiotest\n",
+   "run using tiotest's ability to take multiple -d parameters\n",
    exit(1);
 }
 
@@ -308,4 +323,30 @@ sub get_memory_size {
          if $debug >= $LEVEL_DEBUG;
       return 256*$MB;
    }
+}
+
+sub all_devices {
+   for my $path (@_) {
+      print "Checking potential device $path\n"
+         if $debug >= $LEVEL_TRACE;
+      if(! -b $path && ! -c $path) {
+         print "$path is not a device\n"
+            if $debug >= $LEVEL_DEBUG;
+         return 0;
+      }
+   }
+   return 1;
+}
+
+sub all_directories {
+   for my $path (@_) {
+      print "Checking potential directory $path\n"
+         if $debug >= $LEVEL_TRACE;
+      if(! -d $path) {
+         print "$path is not a directory\n"
+            if $debug >= $LEVEL_DEBUG;
+         return 0;
+      }
+   }
+   return 1;
 }
