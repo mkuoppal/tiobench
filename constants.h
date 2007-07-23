@@ -5,9 +5,10 @@
 #define MB (1024*1024)
 #define GB (1024*1024*1024)
 
-#ifdef USE_LARGEFILES 
-#define __USE_LARGEFILE64
-#define _LARGEFILE64_SOURCE 
+#ifdef USE_LARGEFILES
+#define _LARGEFILE64_SOURCE
+#define _LARGEFILE_SOURCE
+#define _XOPEN_SOURCE
 #endif
 
 #define _GNU_SOURCE
@@ -76,6 +77,7 @@
 #define str(s) #s
 
 /* NOTE: a lot of this could be done with __REDIRECT and unistd.h */
+
 #ifdef USE_LARGEFILES
 typedef off64_t        TIO_off_t;
 #define TIO_lseek      lseek64
@@ -106,7 +108,7 @@ typedef struct {
 
 typedef struct {
 	double avg, max;
-	int count, count1, count2;
+	unsigned long count, count1, count2;
 } Latencies;
 
 typedef struct {
@@ -121,7 +123,7 @@ typedef struct {
 
 	unsigned long    blockSize;
 	unsigned char*   buffer;
-	unsigned long    bufferCrc;
+	unsigned         bufferCrc;
 
 	unsigned long    myNumber;
 
@@ -188,10 +190,10 @@ typedef struct {
 } ArgumentOptions;
 
 #define MIN(a, b)  (((a) < (b)) ? (a) : (b))
-#define MMAP_CHUNK_SIZE 1*GB
+#define MMAP_CHUNK_SIZE 1073741824uLL
 
-typedef void               (*file_io_function)     (int fd, TIO_off_t offset, ThreadData *d);
-typedef void               (*mmap_io_function)     (void *loc, ThreadData *d);
+typedef int                (*file_io_function)     (int fd, TIO_off_t offset, ThreadData *d);
+typedef int                (*mmap_io_function)     (void *loc, ThreadData *d);
 
 typedef TIO_off_t          (*file_offset_function) (TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
 typedef void *             (*mmap_loc_function)    (void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);

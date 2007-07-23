@@ -178,3 +178,17 @@
 
 	* 0.3.5 - massive refactor to a single do_generic_test
         - can MMAP over big files now, it does 1GB chunks
+
+2007-07-13       Mika Kuoppala <miku at iki.fi>
+
+	* 0.4.0 - getrusage returns usrtime and systime in process scope now so
+	fixed usrcpu% and syscpu% accordingly
+	- fixed mmap
+	- consistency checking of data is working again 
+	  (it was completely removed at some point, why ?)
+	- mmap with sync now only syncs the most recently written piece, 
+	  not whole region
+	- testfile is not opened with O_TRUNC because that breaks consistency 
+	  checking (by reading files full of zeros)
+	- fixed minor memory leak on thread data allocation
+	- cleanups

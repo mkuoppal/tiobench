@@ -3,6 +3,7 @@
 CC=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
 CFLAGS=-O2 -Wall
+#CFLAGS=-O0 -g -Wall
 
 # This enables support for 64bit file offsets, allowing
 # possibility to test with files larger than (2^31-1) bytes.
@@ -18,7 +19,7 @@ TIOTEST=tiotest
 TEST_LARGE=test_largefiles
 PROJECT=tiobench
 # do it once instead of each time referenced
-VERSION=$(shell egrep "tiotest v[0-9]+.[0-9]+" tiotest.c | cut -d " " -f 7 | sed "s/v//g")
+VERSION=$(shell egrep "tiotest v[0-9]+.[0-9]+" tiotest.c | cut -d " " -f 8 | sed "s/v//g")
 DISTNAME=$(PROJECT)-$(VERSION)
 INSTALL=install
 PREFIX=/usr/local
@@ -30,7 +31,7 @@ all: $(TEST_LARGE) $(TIOTEST)
 crc32.o: crc32.c crc32.h
 	$(CC) -c $(CFLAGS) $(DEFINES) crc32.c -o crc32.o
 
-tiotest.o: tiotest.c tiotest.h crc32.h crc32.c Makefile
+tiotest.o: tiotest.c tiotest.h crc32.h crc32.c Makefile constants.h
 	$(CC) -c $(CFLAGS) $(DEFINES) tiotest.c -o tiotest.o
 
 test_largefiles.o: tiotest.h test_largefiles.c

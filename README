@@ -3,7 +3,7 @@ Tiobench and tiotest
 Threaded I/O bench for Linux (or any *nix system with POSIX threads
 support library) Author can be reached at: miku at iki.fi
 
-Copyright (C) 1999-2003 Mika Kuoppala
+Copyright (C) 1999-2007 Mika Kuoppala
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

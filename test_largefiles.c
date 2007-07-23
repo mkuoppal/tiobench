@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     }
 
     printf( xstr(TIO_ftruncate) "()'ing large test file to size %Lx\n", LARGEFILE_SIZE);
-    rc = TIO_ftruncate(fd,LARGEFILE_SIZE); /* pre-allocate space */
+    rc = TIO_ftruncate(fd, LARGEFILE_SIZE); /* pre-allocate space */
     if(rc != 0) 
     {
         perror(xstr(TIO_ftruncate) "() failed");
