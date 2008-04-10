@@ -1,7 +1,7 @@
 /*
  *    Threaded io test
  *
- *  Copyright (C) 1999-2007 Mika Kuoppala <miku at iki.fi>
+ *  Copyright (C) 1999-2008 Mika Kuoppala <miku at iki.fi>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 
 #include <assert.h>
 
-static const char* const versionStr = "tiotest v0.4.0 (C) 1999-2007 tiobench team <http://tiobench.sf.net/>";
+static const char* const versionStr = "tiotest v0.4.1 (C) 1999-2008 tiobench team <http://tiobench.sf.net/>";
 
 static ArgumentOptions args;
 

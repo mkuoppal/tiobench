@@ -18,6 +18,7 @@ $|=1; # give output ASAP
 my @tiotest_places=(
    '.',                      # current directory
    '/usr/local/bin',         # install target location
+   '/usr/sbin',              # install target location
    split(':',$ENV{'PATH'}),  # directories in current $PATH
    ($0 =~m#(.*)/#)           # directory this script resides in
 );
@@ -62,7 +63,7 @@ my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
 my $identifier;    my $debug;       my $dump;         my $progress;
-my $timeout;
+my $timeout;       my $rawdev;
 
 # option parsing
 GetOptions("target=s@",\@targets,
@@ -178,6 +179,7 @@ foreach $size (@sizes) {
          my $run_string = "$tiotest -t $thread -f $thread_size ".
                           "-r $thread_rand -b $block $targets_str -T";
          $run_string .= " -W" if $nofrag;
+         $run_string .= " -R" if $rawdev;
          $run_string .= " -D $debug" if $debug > 0;
          foreach $run_number (1..$num_runs) {
             print "Running: $run_string\n"
@@ -269,6 +271,7 @@ sub usage {
             "[--help] (this help text)\n\t",
             "[--identifier IdentString] (use IdentString as identifier in output)\n\t",
             "[--nofrag] (don't write fragmented files)\n\t",
+            "[--raw] (use raw device defined with --dir)\n\t",
             "[--size SizeInMB]+\n\t",
             "[--numruns NumberOfRuns]\n\t",
             "[--target DirOrDisk]+\n\t",

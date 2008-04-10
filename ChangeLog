@@ -192,3 +192,7 @@
 	  checking (by reading files full of zeros)
 	- fixed minor memory leak on thread data allocation
 	- cleanups
+
+2008-04-10       Mika Kuoppala <miku at iki.fi>
+
+	* 0.4.1 - added a --raw flag patch for tiobench.pl by Alexander Biryukov
