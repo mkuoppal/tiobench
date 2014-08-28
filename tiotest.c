@@ -290,7 +290,7 @@ static void checkIntZero(const int value, const char* const mess)
 {
 	if (value <= 0)
 	{
-		fprintf(stderr, mess);
+		fprintf(stderr, "%s",mess);
 		fprintf(stderr, "Try 'tiotest -h' for more information.\n");
 		exit(1);
 	}
@@ -300,7 +300,7 @@ static void checkLong(const long value, const char* const mess)
 {
 	if (value < 0)
 	{
-		fprintf(stderr, mess);
+		fprintf(stderr,"%s", mess);
 		fprintf(stderr, "Try 'tiotest -h' for more information\n");
 		exit(1);
 	}
