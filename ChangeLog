@@ -196,3 +196,7 @@
 2008-04-10       Mika Kuoppala <miku at iki.fi>
 
 	* 0.4.1 - added a --raw flag patch for tiobench.pl by Alexander Biryukov
+
+2014-08-29       Mika Kuoppala <miku at iki.fi>
+
+	* 0.4.2 - see gitlog for details

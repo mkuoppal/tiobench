@@ -1,0 +1,4 @@
+*.patch
+*.o
+tiotest
+test_largefiles

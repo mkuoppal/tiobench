@@ -2,7 +2,7 @@
 
 CC=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
-CFLAGS=-O2 -Wall
+CFLAGS=-O2 -Wall -Werror
 #CFLAGS=-O0 -g -Wall
 
 # This enables support for 64bit file offsets, allowing
@@ -51,7 +51,7 @@ clean:
 
 dist:
 	ln -s . $(DISTNAME)
-	tar -zcvf $(DISTNAME).tar.gz $(DISTNAME)/*.c $(DISTNAME)/*.h $(DISTNAME)/Makefile $(DISTNAME)/COPYING $(DISTNAME)/README $(DISTNAME)/TODO $(DISTNAME)/ChangeLog $(DISTNAME)/BUGS $(DISTNAME)/tiobench.pl $(DISTNAME)/tiosum.pl $(DISTNAME)/scripts
+	tar -zcvf $(DISTNAME).tar.gz $(DISTNAME)/*.c $(DISTNAME)/*.h $(DISTNAME)/Makefile $(DISTNAME)/COPYING $(DISTNAME)/README $(DISTNAME)/TODO $(DISTNAME)/ChangeLog $(DISTNAME)/BUGS $(DISTNAME)/tiobench.pl $(DISTNAME)/scripts
 	rm $(DISTNAME)
 
 install:

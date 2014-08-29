@@ -1,9 +1,9 @@
-Tiobench and tiotest
+Tiobench and tiotest (https://github.com/mkuoppal/tiobench)
    
 Threaded I/O bench for Linux (or any *nix system with POSIX threads
 support library) Author can be reached at: miku at iki.fi
 
-Copyright (C) 1999-2007 Mika Kuoppala
+Copyright (C) 1999-2014 Mika Kuoppala
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -46,5 +46,4 @@ Credits:
 	Sami Korhonen <sjkorhon at cc.hut.fi> noticed
 	thread_attr not initialized bug.
 
-	Numerous other contributions from fearless benchmarkers,
-    	see ChangeLog for details.
+	Numerous other contributions from fearless benchmarkers.
