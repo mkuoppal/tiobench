@@ -1,1 +1,2 @@
 language: c
+after_script: ./tiobench.pl
