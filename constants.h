@@ -41,8 +41,6 @@
 #include <getopt.h>
 #endif
 
-#define TESTS_COUNT            4
-
 /* should be in sync with perl script */
 #define LEVEL_NONE             0
 #define LEVEL_FATAL            10
@@ -96,106 +94,8 @@ typedef off_t          TIO_off_t;
 #define OFFSET_FORMAT  "0x%lx"
 #endif
 
-typedef struct {
-	struct timeval startRealTime;
-	struct timeval startUserTime;
-	struct timeval startSysTime;
-
-	struct timeval stopRealTime;
-	struct timeval stopUserTime;
-	struct timeval stopSysTime;
-} Timings;
-
-typedef struct {
-	double avg, max;
-	unsigned long count, count1, count2;
-} Latencies;
-
-typedef struct {
-
-	pthread_t        thread;
-	pthread_attr_t   thread_attr;
-    
-	char             fileName[KBYTE];
-	TIO_off_t        fileSizeInMBytes;
-	TIO_off_t        fileOffset;            // used in the "raw drives" case, offset into device, 0 otherwise
-	unsigned long    numRandomOps;
-
-	unsigned long    blockSize;
-	unsigned char*   buffer;
-	unsigned         bufferCrc;
-
-	unsigned long    myNumber;
-
-	unsigned long    blocksWritten;
-	Timings          writeTimings;
-	Latencies	     writeLatency;
-
-	unsigned long    blocksRandomWritten;
-	Timings          randomWriteTimings;
-	Latencies	     randomWriteLatency;
-
-	unsigned long    blocksRead;
-	Timings          readTimings;
-	Latencies	     readLatency;
-
-	unsigned long    blocksRandomRead;
-	Timings          randomReadTimings;
-	Latencies	     randomReadLatency;
-
-} ThreadData;
-
-typedef struct {
-    
-	ThreadData* threads;
-	int         numThreads;
-    
-	Timings totalTimeWrite;
-	Timings totalTimeRandomWrite;
-	Timings totalTimeRead;
-	Timings totalTimeRandomRead;
-
-} ThreadTest;
-
-typedef struct {
-	
-	char     path[MAX_PATHS][KBYTE];
-	int      pathsCount;
-	int      fileSizeInMBytes;
-	int      numThreads;
-	int      blockSize;
-	int      numRandomOps;
-	int      verbose;
-	int      terse;
-	int      use_mmap;
-	int      sequentialWriting;
-	int      syncWriting;
-	int	     rawDrives;
-	int      consistencyCheckData;
-	int      showLatency;
-	long	 threadOffset;
-	int	     useThreadOffsetForFirstThread;
-	
-	int	     testsToRun[TESTS_COUNT];
-	int	     runRandomWrite;
-	int	     runRead;
-	int	     runRandomRead;
-
-	/*
-	  Debug level
-	  This should be from 0 - 10
-	*/
-	int      debugLevel;
-
-} ArgumentOptions;
 
 #define MIN(a, b)  (((a) < (b)) ? (a) : (b))
 #define MMAP_CHUNK_SIZE 1073741824uLL
-
-typedef int                (*file_io_function)     (int fd, TIO_off_t offset, ThreadData *d);
-typedef int                (*mmap_io_function)     (void *loc, ThreadData *d);
-
-typedef TIO_off_t          (*file_offset_function) (TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
-typedef void *             (*mmap_loc_function)    (void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
 
 #endif /* CONSTANTS_H */

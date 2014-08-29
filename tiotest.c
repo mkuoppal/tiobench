@@ -20,19 +20,224 @@
  *
  */
 
-#include "tiotest.h"
+#include "constants.h"
 #include "crc32.h"
-
 #include <assert.h>
 
-static const char* const versionStr = "tiotest v0.4.1 (C) 1999-2008 tiobench team <http://tiobench.sf.net/>";
+#define WRITE_TEST         0
+#define RANDOM_WRITE_TEST  1
+#define READ_TEST          2
+#define RANDOM_READ_TEST   3
+
+#define TEST_COUNT         4
+
+struct tt_rusage {
+	struct timeval startRealTime;
+	struct timeval startUserTime;
+	struct timeval startSysTime;
+
+	struct timeval stopRealTime;
+	struct timeval stopUserTime;
+	struct timeval stopSysTime;
+};
+
+typedef struct {
+	double avg, max;
+	unsigned long count, count1, count2;
+} Latencies;
+
+typedef struct {
+	pthread_t        thread;
+	pthread_attr_t   thread_attr;
+
+	char             fileName[KBYTE];
+	TIO_off_t        fileSizeInMBytes;
+	TIO_off_t        fileOffset;            // used in the "raw drives" case, offset into device, 0 otherwise
+	unsigned long    numRandomOps;
+
+	unsigned long    blockSize;
+	unsigned char*   buffer;
+	unsigned         bufferCrc;
+
+	unsigned long    myNumber;
+
+	unsigned long    blocksWritten;
+	struct tt_rusage writeTimings;
+	Latencies	     writeLatency;
+
+	unsigned long    blocksRandomWritten;
+	struct tt_rusage          randomWriteTimings;
+	Latencies	     randomWriteLatency;
+
+	unsigned long    blocksRead;
+	struct tt_rusage          readTimings;
+	Latencies	     readLatency;
+
+	unsigned long    blocksRandomRead;
+	struct tt_rusage          randomReadTimings;
+	Latencies	     randomReadLatency;
+
+} ThreadData;
+
+typedef void (*TestFunc)(ThreadData *);
+
+typedef struct {
+	ThreadData* threads;
+	int         numThreads;
+
+	struct tt_rusage totalTimeWrite;
+	struct tt_rusage totalTimeRandomWrite;
+	struct tt_rusage totalTimeRead;
+	struct tt_rusage totalTimeRandomRead;
+
+} ThreadTest;
+
+typedef struct {
+	char     path[MAX_PATHS][KBYTE];
+	int      pathsCount;
+	int      fileSizeInMBytes;
+	int      numThreads;
+	int      blockSize;
+	int      numRandomOps;
+	int      verbose;
+	int      terse;
+	int      use_mmap;
+	int      sequentialWriting;
+	int      syncWriting;
+	int	     rawDrives;
+	int      consistencyCheckData;
+	int      showLatency;
+	long	 threadOffset;
+	int	     useThreadOffsetForFirstThread;
+
+	int	     testsToRun[TEST_COUNT];
+	int	     runRandomWrite;
+	int	     runRead;
+	int	     runRandomRead;
+
+	/*
+	  Debug level
+	  This should be from 0 - 10
+	*/
+	int      debugLevel;
+
+} ArgumentOptions;
+
+typedef struct
+{
+	volatile int *child_status;
+	TestFunc fn;
+	ThreadData *d;
+	volatile int *pstart;
+} StartData;
+
+typedef int                (*file_io_function)     (int fd, TIO_off_t offset, ThreadData *d);
+typedef int                (*mmap_io_function)     (void *loc, ThreadData *d);
+
+typedef TIO_off_t          (*file_offset_function) (TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+typedef void *             (*mmap_loc_function)    (void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
+
+// operation functions
+static int do_pwrite_operation(int fd, TIO_off_t offset, ThreadData *d);
+static int do_pread_operation(int fd, TIO_off_t offset, ThreadData *d);
+static int do_mmap_read_operation(void *loc, ThreadData *d);
+static int do_mmap_write_operation(void *loc, ThreadData *d);
+
+// offset functions
+static TIO_off_t get_sequential_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+static TIO_off_t get_random_offset(TIO_off_t current_offset, ThreadData *d, unsigned int *seed);
+static void *get_sequential_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
+static void *get_random_loc(void *base_loc, void *current_loc, ThreadData *d, unsigned int *seed);
+
+static const char* const versionStr = "tiotest v0.4.2 (C) 1999-2008 tiobench team <http://tiobench.sf.net/>";
 
 static ArgumentOptions args;
 
-static float timeval_percentage_of(const struct timeval* value, const struct timeval* from, unsigned int divider);
-static void add_timer(struct timeval* v, const struct timeval* start_time, const struct timeval* end_time);
+static void t_log (int level, char *message)
+{
+	if(args.debugLevel >= level)
+		fprintf(stderr, "%s\n", message);
+}
 
-static void update_latency_info(Latencies *lat, struct timeval tv_start, struct timeval tv_stop)
+static unsigned int get_random_seed()
+{
+	unsigned int seed;
+	struct timeval r;
+
+	if(gettimeofday( &r, NULL ) == 0) {
+		seed = r.tv_usec;
+	} else {
+		seed = 0xDEADBEEF;
+	}
+
+	return seed;
+}
+
+static TIO_off_t get_random_number(const TIO_off_t max, unsigned int *seed)
+{
+	unsigned long rr = rand_r(seed);
+
+	// if it doesn't give us enough random bits, add some more
+	if(RAND_MAX < max)
+	{
+		rr |= (rand_r(seed) << 16);
+	}
+
+	return (TIO_off_t) (rr % max);
+}
+
+static void timer_init(struct tt_rusage *t)
+{
+	memset( t, 0, sizeof(struct tt_rusage) );
+}
+
+static void timer_start(struct tt_rusage *t)
+{
+	struct rusage ru;
+
+	if(gettimeofday( &(t->startRealTime), NULL ))
+	{
+		perror("Error in timer_start from gettimeofday()\n");
+		exit(10);
+	}
+
+	if(getrusage( RUSAGE_SELF, &ru ))
+	{
+		perror("Error in timer_start from getrusage()\n");
+		exit(11);
+	}
+
+	memcpy( &(t->startUserTime), &(ru.ru_utime), sizeof( struct timeval ));
+	memcpy( &(t->startSysTime), &(ru.ru_stime), sizeof( struct timeval ));
+}
+
+static void timer_stop(struct tt_rusage *t)
+{
+	struct rusage ru;
+
+	if( getrusage( RUSAGE_SELF, &ru ))
+	{
+		perror("Error in timer_stop from getrusage()\n");
+		exit(11);
+	}
+
+	if(gettimeofday( &(t->stopRealTime), NULL ))
+	{
+		perror("Error in timer_stop from gettimeofday()\n");
+		exit(10);
+	}
+
+	memcpy( &(t->stopUserTime), &(ru.ru_utime), sizeof( struct timeval ));
+	memcpy( &(t->stopSysTime), &(ru.ru_stime), sizeof( struct timeval ));
+}
+
+static unsigned long long tv_to_usec(const struct timeval* v)
+{
+	return v->tv_sec * (1000*1000) + v->tv_usec;
+}
+
+static void update_latency_info(Latencies *lat, struct timeval tv_start,
+				struct timeval tv_stop)
 {
 	double value;
 
@@ -50,12 +255,14 @@ static void update_latency_info(Latencies *lat, struct timeval tv_start, struct 
 	return;
 }
 
-static void * aligned_alloc(const ssize_t size)
+static void * tt_aligned_alloc(const ssize_t size)
 {
 	caddr_t a;
 
-	a = TIO_mmap((caddr_t )0, size, 
-				 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, (TIO_off_t)0);
+	a = TIO_mmap((caddr_t )0, size,
+		     PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANON, -1, (TIO_off_t)0);
+
 	if (a == MAP_FAILED) {
 		perror("Error " xstr(TIO_mmap) "()ing anonymous memory chunk");
 		exit(-1);
@@ -63,53 +270,15 @@ static void * aligned_alloc(const ssize_t size)
 	return a;
 }
 
-static int aligned_free(caddr_t a, const ssize_t size)
+static void tt_aligned_free(caddr_t a, const ssize_t size)
 {
-	return munmap(a, size);
-}
-
-int main(int argc, char *argv[])
-{
-	ThreadTest test;
-	int i;
-
-	strcpy(args.path[0], DEFAULT_DIRECTORY );
-	args.pathsCount = 1;
-	args.fileSizeInMBytes = DEFAULT_FILESIZE;
-	args.blockSize = DEFAULT_BLOCKSIZE;
-	args.numThreads = DEFAULT_THREADS;
-	args.numRandomOps = DEFAULT_RANDOM_OPS;
-	args.debugLevel = DEFAULT_DEBUG_LEVEL;
-	args.verbose = FALSE;
-	args.terse = FALSE;
-	args.use_mmap = FALSE;
-	args.consistencyCheckData = FALSE;
-	args.syncWriting = FALSE;
-	args.rawDrives = FALSE;
-	args.showLatency = TRUE;
-	args.threadOffset = DEFAULT_RAW_OFFSET;
-	args.useThreadOffsetForFirstThread = FALSE;
-	
-	for(i = 0; i < TESTS_COUNT; i++)
-		args.testsToRun[i] = 1;
-	
-	parse_args( &args, argc, argv );
-    
-	initialize_test( &test );
-	
-	do_tests( &test );
-
-	print_results( &test );
-
-	cleanup_test( &test );
-
-	return 0;
+	munmap(a, size);
 }
 
 static void checkValidFileSize(const int value)
 {
 #ifndef USE_LARGEFILES
-	if (value > MAXINT / (1024*1024)) 
+	if (value > MAXINT / (1024*1024))
 	{
 		fprintf(stderr, "Specified file size too large, please specify something under 2GB\n");
 		exit(1);
@@ -119,7 +288,7 @@ static void checkValidFileSize(const int value)
 
 static void checkIntZero(const int value, const char* const mess)
 {
-	if (value <= 0) 
+	if (value <= 0)
 	{
 		fprintf(stderr, mess);
 		fprintf(stderr, "Try 'tiotest -h' for more information.\n");
@@ -137,6 +306,81 @@ static void checkLong(const long value, const char* const mess)
 	}
 }
 
+static void print_option(const char* s,
+			 const char* desc,
+			 const char* def)
+{
+	printf("  %s          %s", s, desc);
+
+	if(def)
+		printf(" (default: %s)", def);
+
+	printf("\n");
+
+}
+
+static char *my_int_to_string(int a)
+{
+	static char tempBuffer[128];
+
+	sprintf(tempBuffer, "%d", a);
+
+	return tempBuffer;
+}
+
+static void print_help_and_exit()
+{
+	printf("%s\n", versionStr);
+
+	printf("Usage: tiotest [options]\n");
+
+	print_option("-f", "Filesize per thread in MBytes",
+		     my_int_to_string(DEFAULT_FILESIZE));
+
+	print_option("-b", "Blocksize to use in bytes",
+		     my_int_to_string(DEFAULT_BLOCKSIZE));
+
+	print_option("-d", "Directory for test files",
+		     DEFAULT_DIRECTORY);
+
+	print_option("-t", "Number of concurrent test threads",
+		     my_int_to_string(DEFAULT_THREADS));
+
+	print_option("-r", "Random I/O operations per thread",
+		     my_int_to_string(DEFAULT_RANDOM_OPS));
+
+	print_option("-o", "Offset in Mb on disk between threads. Use with -R option",
+		     0);
+
+	print_option("-k", "Skip test number n. Could be used several times.", 0);
+
+	print_option("-L", "Hide latency output", 0);
+
+	print_option("-R", "Use raw devices. Set device name with -d option", 0);
+
+	print_option("-T", "More terse output", 0);
+
+	print_option("-M", "Use mmap for I/O", 0);
+
+	print_option("-W", "Do writing phase sequentially", 0);
+
+	print_option("-S", "Do writing synchronously", 0);
+
+	print_option("-O", "Use offset from -o option for first thread. Use with -R option",
+		     0);
+
+	print_option("-c",
+		     "Consistency check data (will slow io and raise cpu%)",
+		     0);
+
+	print_option("-D", "Debug level",
+		     my_int_to_string(DEFAULT_DEBUG_LEVEL));
+
+	print_option("-h", "Print this help and exit", 0);
+
+	exit(1);
+}
+
 static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 {
 	int c;
@@ -148,7 +392,7 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 
 		if (c == -1)
 			break;
-	
+
 		switch (c)
 		{
 		case 'f':
@@ -156,38 +400,38 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			checkIntZero(args->fileSizeInMBytes, "Wrong file size\n");
 			checkValidFileSize(args->fileSizeInMBytes);
 			break;
-	    
+
 		case 'b':
 			args->blockSize = atoi(optarg);
 			checkIntZero(args->blockSize, "Wrong block size\n");
 			break;
-	    
+
 		case 'd':
-			if (args->pathsCount < MAX_PATHS) 
+			if (args->pathsCount < MAX_PATHS)
 			{
-				if (!once) 
+				if (!once)
 				{
-					args->pathsCount = 0;           
+					args->pathsCount = 0;
 					once = 1;
 				}
 				strcpy(args->path[args->pathsCount++], optarg);
 			}
 			break;
-	    
+
 		case 't':
 			args->numThreads = atoi(optarg);
 			checkIntZero(args->numThreads, "Wrong number of threads\n");
 			break;
-	    
+
 		case 'r':
 			args->numRandomOps = atoi(optarg);
 			checkIntZero(args->numRandomOps, "Wrong number of random I/O operations\n");
 			break;
-	    
+
 		case 'L':
 			args->showLatency = FALSE;
 			break;
-	    
+
 		case 'T':
 			args->terse = TRUE;
 			break;
@@ -199,11 +443,11 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 		case 'W':
 			args->sequentialWriting = TRUE;
 			break;
-			
+
 		case 'S':
 			args->syncWriting = TRUE;
 			break;
-			
+
 		case 'R':
 			args->rawDrives = TRUE;
 			break;
@@ -215,24 +459,24 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 		case 'h':
 			print_help_and_exit();
 			break;
-		
+
 		case 'D':
 			args->debugLevel = atoi(optarg);
 			break;
-		
+
 		case 'o':
 			args->threadOffset = atol(optarg);
 			checkLong(args->threadOffset, "Wrong offset between threads\n");
 			break;
-			
+
 		case 'O':
 			args->useThreadOffsetForFirstThread = TRUE;
 			break;
-			
+
 		case 'k':
 		{
 			const int i = atoi(optarg);
-			if (i < TESTS_COUNT) 
+			if (i < TEST_COUNT)
 			{
 				args->testsToRun[i] = 0;
 				break;
@@ -250,15 +494,203 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 	}
 }
 
+static void* do_generic_test(file_io_function io_func,
+			     mmap_io_function mmap_func,
+			     file_offset_function offset_func,
+			     mmap_loc_function loc_func,
+			     ThreadData *d, struct tt_rusage *timings,
+			     Latencies *latencies,
+			     int madvise_advice,
+			     unsigned long *blockCount,
+			     unsigned long io_ops)
+{
+	int     fd;
+	TIO_off_t  blocks=((TIO_off_t)d->fileSizeInMBytes*MBYTE)/d->blockSize;
+	unsigned int seed = get_random_seed();
+
+	int     rc;
+	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
+
+	// for now, always read/write, just easier
+	int openFlags = O_RDWR;
+
+	// if not a pre-existing device, add create flag
+	if (!args.rawDrives)
+		openFlags |= O_CREAT;
+
+	// if sync I/O requested, do it at open time
+	if( args.syncWriting )
+		openFlags |= O_SYNC;
+
+#ifdef USE_LARGEFILES
+	openFlags |= O_LARGEFILE;
+#endif
+
+	fd = open(d->fileName, openFlags, 0600 );
+	if(fd == -1) {
+		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
+		return 0;
+	}
+
+	/* if doing real files, get them pre-allocated in size */
+	if (!args.rawDrives) {
+		t_log(LEVEL_DEBUG, "calling " xstr(TIO_ftruncate) "() on file descriptor");
+		rc = TIO_ftruncate(fd, bytesize); /* pre-allocate space */
+		if(rc != 0) {
+			perror(xstr(TIO_ftruncate) "() failed");
+			close(fd);
+			return 0;
+		}
+	}
+
+	timer_start( timings );
+
+	if(args.use_mmap)
+	{
+		/**
+		 * MEMORY-MAPPED OPERATIONS
+		 */
+		unsigned long chunk_num;
+		// rounds the number of mmap chunks up, basically ceiling function
+		TIO_off_t num_mmap_chunks = bytesize/MMAP_CHUNK_SIZE + 1;
+
+		for(chunk_num=0; chunk_num < num_mmap_chunks; chunk_num++)
+		{
+			void *file_loc = NULL;
+			long this_chunk_offset = d->fileOffset + chunk_num*MMAP_CHUNK_SIZE;
+			long this_chunk_size = MIN(MMAP_CHUNK_SIZE, (TIO_off_t)bytesize - chunk_num*MMAP_CHUNK_SIZE);
+			long this_chunk_blocks = this_chunk_size / d->blockSize;
+			void *current_loc = NULL;
+
+			file_loc=TIO_mmap(NULL,this_chunk_size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
+					  this_chunk_offset);
+			if(file_loc == MAP_FAILED) {
+				fprintf(stderr, "this_chunk_size=%ld, fd=%d, offset=" OFFSET_FORMAT
+					"\n", this_chunk_size, fd, d->fileOffset);
+				perror("Error " xstr(TIO_mmap) "()ing data file");
+				close(fd);
+				return 0;
+			}
+
+			madvise(file_loc, this_chunk_size, madvise_advice);
+
+			current_loc = file_loc - d->blockSize; // back-one hack for sequential case
+			while(io_ops--) {
+				int ret;
+				struct timeval tv_start, tv_stop;
+
+				current_loc = (*loc_func)(file_loc, current_loc, d, &(seed));
+
+				gettimeofday(&tv_start, NULL);
+
+				ret = mmap_func(current_loc, d);
+				if(ret != 0)
+					exit(ret);
+
+				if( args.syncWriting ) msync(current_loc, d->blockSize, MS_SYNC);
+
+				gettimeofday(&tv_stop, NULL);
+				update_latency_info(latencies, tv_start, tv_stop);
+			}
+
+			(*blockCount) += this_chunk_blocks; // take this out of the for loop, we don't handle errors that well
+
+			munmap(file_loc, this_chunk_size);
+		}
+	} else {
+		/**
+		 * REGULAR I/O OPERATIONS
+		 */
+		//TIO_off_t current_offset = d->fileOffset;
+		TIO_off_t current_offset = d->fileOffset - d->blockSize; // back-one hack for sequential case
+
+		while(io_ops--)
+		{
+			struct timeval tv_start, tv_stop;
+			int ret;
+
+			current_offset = (*offset_func)(current_offset, d, &(seed));
+
+			gettimeofday(&tv_start, NULL);
+			ret = (*io_func)(fd, current_offset, d);
+			if(ret != 0)
+				exit(ret);
+
+			gettimeofday(&tv_stop, NULL);
+			update_latency_info(latencies, tv_start, tv_stop);
+		}
+
+		(*blockCount) += blocks; // take this out of the for loop, we don't handle errors that well
+	}
+
+	fsync(fd);
+
+	close(fd);
+
+	timer_stop( timings );
+
+	return 0;
+}
+
+static unsigned long get_number_of_blocks(ThreadData *d)
+{
+	return (d->fileSizeInMBytes * MB) / d->blockSize;
+}
+
+static void do_read_test( ThreadData *d )
+{
+	t_log(LEVEL_INFO, "Doing sequential read test");
+	do_generic_test(do_pread_operation, do_mmap_read_operation,
+			get_sequential_offset, get_sequential_loc,
+			d, &(d->readTimings), &(d->readLatency),
+			MADV_SEQUENTIAL, &(d->blocksRead), get_number_of_blocks(d));
+}
+
+static void do_write_test( ThreadData *d )
+{
+	t_log(LEVEL_INFO, "Doing sequential write test");
+	do_generic_test(do_pwrite_operation, do_mmap_write_operation,
+			get_sequential_offset, get_sequential_loc,
+			d, &(d->writeTimings), &(d->writeLatency),
+			MADV_SEQUENTIAL, &(d->blocksWritten), get_number_of_blocks(d));
+}
+
+static void do_random_read_test( ThreadData *d )
+{
+	t_log(LEVEL_INFO, "Doing random read test");
+	do_generic_test(do_pread_operation, do_mmap_read_operation,
+			get_random_offset, get_random_loc,
+			d, &(d->randomReadTimings), &(d->randomReadLatency),
+			MADV_RANDOM, &(d->blocksRandomRead), d->numRandomOps);
+}
+
+static void do_random_write_test( ThreadData *d )
+{
+	t_log(LEVEL_INFO, "Doing random write test");
+	do_generic_test(do_pwrite_operation, do_mmap_write_operation,
+			get_random_offset, get_random_loc,
+			d, &(d->randomWriteTimings), &(d->randomWriteLatency),
+			MADV_RANDOM, &(d->blocksRandomWritten), d->numRandomOps);
+}
+
+static const TestFunc Tests[] = {
+    do_write_test,
+    do_random_write_test,
+    do_read_test,
+    do_random_read_test,
+};
+
 static void initialize_test( ThreadTest *d )
 {
 	int i;
 	int pathLoadBalIdx = 0;
 	TIO_off_t offs, cur_offs[KBYTE] = {0};
 
+	assert(TEST_COUNT == (sizeof(Tests)/sizeof(TestFunc)));
+
 	memset( d, 0, sizeof(ThreadTest) );
-    
-	d->numThreads = args.numThreads; 
+
+	d->numThreads = args.numThreads;
 
 	d->threads = calloc( d->numThreads, sizeof(ThreadData) );
 	if( d->threads == NULL )
@@ -268,12 +700,12 @@ static void initialize_test( ThreadTest *d )
 	}
 
 	/* Initializing thread data */
-	if (args.rawDrives) 
+	if (args.rawDrives)
 	{
-		if (args.threadOffset != 0) 
+		if (args.threadOffset != 0)
 		{
 			offs = (args.threadOffset + args.fileSizeInMBytes) * MBYTE;
-			if (args.useThreadOffsetForFirstThread) 
+			if (args.useThreadOffsetForFirstThread)
 			{
 				int k;
 				for(k = 0; k < KBYTE; k++)
@@ -297,24 +729,24 @@ static void initialize_test( ThreadTest *d )
 			d->threads[i].fileOffset = cur_offs[pathLoadBalIdx];
 			cur_offs[pathLoadBalIdx] += offs;
 			sprintf(d->threads[i].fileName, "%s",
-					args.path[pathLoadBalIdx++]);
+				args.path[pathLoadBalIdx++]);
 		}
 		else
 		{
 			d->threads[i].fileOffset = 0;
 			sprintf(d->threads[i].fileName, "%s/_tiotest_pid%d.thr%d",
-					args.path[pathLoadBalIdx++], (int) getpid(), i);
+				args.path[pathLoadBalIdx++], (int) getpid(), i);
 		}
-		
+
 		if( pathLoadBalIdx >= args.pathsCount )
 			pathLoadBalIdx = 0;
 
 		pthread_attr_init( &(d->threads[i].thread_attr) );
 
 		pthread_attr_setscope(&(d->threads[i].thread_attr),
-							  PTHREAD_SCOPE_SYSTEM);
+				      PTHREAD_SCOPE_SYSTEM);
 
-		d->threads[i].buffer = aligned_alloc( d->threads[i].blockSize );
+		d->threads[i].buffer = tt_aligned_alloc( d->threads[i].blockSize );
 
 		if( args.consistencyCheckData )
 		{
@@ -332,81 +764,6 @@ static void initialize_test( ThreadTest *d )
 	}
 }
 
-static void print_option(const char* s, 
-						 const char* desc, 
-						 const char* def)
-{
-	printf("  %s          %s", s, desc);
-    
-	if(def)
-		printf(" (default: %s)", def);
-
-	printf("\n");
-   
-}
-
-static char *my_int_to_string(int a)
-{
-	static char tempBuffer[128];
-
-	sprintf(tempBuffer, "%d", a);
-
-	return tempBuffer;
-}
-
-static void print_help_and_exit()
-{
-	printf("%s\n", versionStr);
-
-	printf("Usage: tiotest [options]\n");
-
-	print_option("-f", "Filesize per thread in MBytes",
-				 my_int_to_string(DEFAULT_FILESIZE));
-
-	print_option("-b", "Blocksize to use in bytes",
-				 my_int_to_string(DEFAULT_BLOCKSIZE));
-
-	print_option("-d", "Directory for test files", 
-				 DEFAULT_DIRECTORY);
-
-	print_option("-t", "Number of concurrent test threads",
-				 my_int_to_string(DEFAULT_THREADS));
-
-	print_option("-r", "Random I/O operations per thread", 
-				 my_int_to_string(DEFAULT_RANDOM_OPS));
-		     
-	print_option("-o", "Offset in Mb on disk between threads. Use with -R option",
-				 0);
-	
-	print_option("-k", "Skip test number n. Could be used several times.", 0);	  
-	
-	print_option("-L", "Hide latency output", 0);	  
-	
-	print_option("-R", "Use raw devices. Set device name with -d option", 0);
-
-	print_option("-T", "More terse output", 0);
-
-	print_option("-M", "Use mmap for I/O", 0);
-
-	print_option("-W", "Do writing phase sequentially", 0);
-	
-	print_option("-S", "Do writing synchronously", 0);
-	
-	print_option("-O", "Use offset from -o option for first thread. Use with -R option",
-				 0);
-
-	print_option("-c", 
-				 "Consistency check data (will slow io and raise cpu%)",
-				 0);
-	
-	print_option("-D", "Debug level",
-				 my_int_to_string(DEFAULT_DEBUG_LEVEL));
-
-	print_option("-h", "Print this help and exit", 0);
-
-	exit(1);
-}
-
 static void cleanup_test( ThreadTest *d )
 {
 	int i;
@@ -415,14 +772,14 @@ static void cleanup_test( ThreadTest *d )
 	{
 		if (!args.rawDrives)
 			unlink(d->threads[i].fileName);
-		aligned_free( (char *)d->threads[i].buffer, d->threads[i].blockSize );
+		tt_aligned_free( (char *)d->threads[i].buffer, d->threads[i].blockSize );
 		d->threads[i].buffer = 0;
-	
+
 		pthread_attr_destroy( &(d->threads[i].thread_attr) );
 	}
 
 	free(d->threads);
-    
+
 	d->threads = 0;
 }
 
@@ -431,57 +788,8 @@ static void wait_for_threads( ThreadTest *d )
 	int i;
 
 	for(i = 0; i < d->numThreads; i++)
-		pthread_join(d->threads[i].thread, NULL);	
+		pthread_join(d->threads[i].thread, NULL);
 }
-
-static void do_tests( ThreadTest *thisTest )
-{
-	Timings *timeWrite       = &(thisTest->totalTimeWrite);
-	Timings *timeRandomWrite = &(thisTest->totalTimeRandomWrite);
-	Timings *timeRead        = &(thisTest->totalTimeRead);
-	Timings *timeRandomRead  = &(thisTest->totalTimeRandomRead);
-
-	timer_init( timeWrite );
-	timer_init( timeRandomWrite );
-	timer_init( timeRead );
-	timer_init( timeRandomRead );
-
-	/*
-	  Write testing 
-	*/
-	if (args.testsToRun[WRITE_TEST])
-		do_test( thisTest, WRITE_TEST, args.sequentialWriting,
-				 timeWrite,  "Waiting write threads to finish...");
-
-	/*
-	  RandomWrite testing 
-	*/
-	if (args.testsToRun[RANDOM_WRITE_TEST])
-		do_test( thisTest, RANDOM_WRITE_TEST, FALSE, timeRandomWrite,
-				 "Waiting random write threads to finish...");
-
-	/*
-	  Read testing 
-	*/
-	if (args.testsToRun[READ_TEST])
-		do_test( thisTest, READ_TEST, FALSE, timeRead,
-				 "Waiting read threads to finish..." );
-
-	/*
-	  RandomRead testing 
-	*/
-	if (args.testsToRun[RANDOM_READ_TEST])
-		do_test( thisTest, RANDOM_READ_TEST, FALSE, timeRandomRead,
-				 "Waiting random read threads to finish...");
-}
-
-typedef struct 
-{
-	volatile int *child_status;
-	TestFunc fn;
-	ThreadData *d;
-	volatile int *pstart;
-} StartData;
 
 static void* start_proc( void *data )
 {
@@ -493,39 +801,35 @@ static void* start_proc( void *data )
 	return NULL;
 }
 
-static void t_log (int level, char *message)
-{
-	if(args.debugLevel >= level)
-		fprintf(stderr, "%s\n", message);
-}
-
 static void do_test( ThreadTest *test, int testCase, int sequential,
-					 Timings *t, char *debugMessage )
+					 struct tt_rusage *t, char *debugMessage )
 {
 	int i;
 	volatile int *child_status;
 	StartData *sd;
 	int synccount;
 	volatile int start = 0;
-	
+
+	assert(testCase < TEST_COUNT);
+
 	child_status = (volatile int *)calloc(test->numThreads, sizeof(int));
-	if (child_status == NULL) 
+	if (child_status == NULL)
 	{
 		perror("Error calloc()ing thread status memory");
 		return;
 	}
-	
+
 	sd = (StartData*)calloc(test->numThreads, sizeof(StartData));
-	if (sd == NULL) 
+	if (sd == NULL)
 	{
 		perror("Error calloc()ing thread start data memory");
 		free((int*)child_status);
 		return;
 	}
-	
+
 	if (sequential)
 		timer_start(t);
-	
+
 	for(i = 0; i < test->numThreads; i++)
 	{
 		sd[i].child_status = &child_status[i];
@@ -536,8 +840,8 @@ static void do_test( ThreadTest *test, int testCase, int sequential,
 		else
 			sd[i].pstart = &start;
 		if( pthread_create(
-				&(test->threads[i].thread), 
-				&(test->threads[i].thread_attr), 
+				&(test->threads[i].thread),
+				&(test->threads[i].thread_attr),
 				start_proc,
 				(void *)&sd[i]))
 		{
@@ -553,26 +857,26 @@ static void do_test( ThreadTest *test, int testCase, int sequential,
 			pthread_join(test->threads[i].thread, NULL);
 		}
 	}
-	
-	if(sequential) 
+
+	if(sequential)
 		timer_stop(t);
-	else 
+	else
 	{
 		struct timeval tv1, tv2;
 		gettimeofday(&tv1, NULL);
-		do 
+		do
 		{
 			synccount = 0;
-			for(i = 0; i < test->numThreads; i++) 
-				if (child_status[i]) 
+			for(i = 0; i < test->numThreads; i++)
+				if (child_status[i])
 					synccount++;
-			if (synccount == test->numThreads) 
+			if (synccount == test->numThreads)
 				break;
 			sleep(1);
 			gettimeofday(&tv2, NULL);
 		} while ((tv2.tv_sec - tv1.tv_sec) < 30);
 
-		if (synccount != test->numThreads) 
+		if (synccount != test->numThreads)
 		{
 			fprintf(stderr, "Unable to start %d threads (started %d)\n", 
 					test->numThreads, synccount);
@@ -583,23 +887,64 @@ static void do_test( ThreadTest *test, int testCase, int sequential,
 			return;
 		}
 
-        t_log(LEVEL_INFO, "Created threads");
-	
+		t_log(LEVEL_INFO, "Created threads");
+
 		timer_start(t);
 
 		start = 1;
-    
+
 		t_log(LEVEL_INFO, "Waiting threads");
 
 		wait_for_threads(test);
-    
+
 		timer_stop(t);
 	}
 	free((int*)child_status);
 
 	free(sd);
-    
+
 	t_log(LEVEL_INFO, "Done!");
+}
+
+static void do_tests( ThreadTest *thisTest )
+{
+	struct tt_rusage *timeWrite       = &(thisTest->totalTimeWrite);
+	struct tt_rusage *timeRandomWrite = &(thisTest->totalTimeRandomWrite);
+	struct tt_rusage *timeRead        = &(thisTest->totalTimeRead);
+	struct tt_rusage *timeRandomRead  = &(thisTest->totalTimeRandomRead);
+
+	timer_init( timeWrite );
+	timer_init( timeRandomWrite );
+	timer_init( timeRead );
+	timer_init( timeRandomRead );
+
+	/*
+	  Write testing
+	*/
+	if (args.testsToRun[WRITE_TEST])
+		do_test( thisTest, WRITE_TEST, args.sequentialWriting,
+				 timeWrite,  "Waiting write threads to finish...");
+
+	/*
+	  RandomWrite testing
+	*/
+	if (args.testsToRun[RANDOM_WRITE_TEST])
+		do_test( thisTest, RANDOM_WRITE_TEST, FALSE, timeRandomWrite,
+				 "Waiting random write threads to finish...");
+
+	/*
+	  Read testing
+	*/
+	if (args.testsToRun[READ_TEST])
+		do_test( thisTest, READ_TEST, FALSE, timeRead,
+				 "Waiting read threads to finish..." );
+
+	/*
+	  RandomRead testing
+	*/
+	if (args.testsToRun[RANDOM_READ_TEST])
+		do_test( thisTest, RANDOM_READ_TEST, FALSE, timeRandomRead,
+				 "Waiting random read threads to finish...");
 }
 
 static void add_timer(struct timeval* v, const struct timeval* start_time, const struct timeval* end_time)
@@ -611,9 +956,9 @@ static void add_timer(struct timeval* v, const struct timeval* start_time, const
 	{
 		assert(start_time->tv_usec <= end_time->tv_usec);
 	}
-	
+
 	memset(&tmp, 0, sizeof(struct timeval));
-	
+
 	timersub(end_time, start_time, &tmp);
 
 	timeradd(v, &tmp, v);
@@ -629,14 +974,26 @@ static double timeval_to_secs(const struct timeval* v)
 	return s;
 }
 
+static float timeval_percentage_of(const struct timeval* value, const struct timeval* from, unsigned int divider)
+{
+	unsigned long long v;
+	float p;
+
+	v = (100 * 100 * tv_to_usec(value)) / tv_to_usec(from);
+
+	p = (float)v / (100.0 * divider);
+
+	return p;
+}
+
 static void print_results( ThreadTest *d )
 {
 /*
   This is messy and should be rewritten but some of unixes, didn't
   understand all printf options and long long formats.
 */
-	int i;    
-	double totalBlocksWrite = 0, totalBlocksRead = 0, 
+	int i;
+	double totalBlocksWrite = 0, totalBlocksRead = 0,
 		totalBlocksRandomWrite = 0, totalBlocksRandomRead = 0;
 
 	double read_rate,write_rate,random_read_rate,random_write_rate;
@@ -646,22 +1003,21 @@ static void print_results( ThreadTest *d )
 	struct timeval realtime_rread, usrtime_rread, systime_rread;
 
 	double mbytesWrite, mbytesRandomWrite, mbytesRead, mbytesRandomRead;
-	
+
 	double avgWriteLat=0, avgRWriteLat=0, avgReadLat=0, avgRReadLat=0;
 	double maxWriteLat=0, maxRWriteLat=0, maxReadLat=0, maxRReadLat=0;
 	double countWriteLat=0, countRWriteLat=0, countReadLat=0, countRReadLat=0;
-	double count1WriteLat=0, count1RWriteLat=0, count1ReadLat=0, 
+	double count1WriteLat=0, count1RWriteLat=0, count1ReadLat=0,
 		count1RReadLat=0;
-	double count2WriteLat=0, count2RWriteLat=0, count2ReadLat=0, 
+	double count2WriteLat=0, count2RWriteLat=0, count2ReadLat=0,
 		count2RReadLat=0;
-	double perc1WriteLat=0, perc1RWriteLat=0, perc1ReadLat=0, 
+	double perc1WriteLat=0, perc1RWriteLat=0, perc1ReadLat=0,
 		perc1RReadLat=0;
-	double perc2WriteLat=0, perc2RWriteLat=0, perc2ReadLat=0, 
+	double perc2WriteLat=0, perc2RWriteLat=0, perc2ReadLat=0,
 		perc2RReadLat=0;
 	double avgLat=0, maxLat=0, countLat=0, count1Lat=0, count2Lat=0,
 		perc1Lat=0, perc2Lat=0;
 
-	
 	memset(&realtime_write, 0, sizeof(struct timeval));
 	memset(&usrtime_write, 0, sizeof(struct timeval));
 	memset(&systime_write, 0, sizeof(struct timeval));
@@ -694,49 +1050,49 @@ static void print_results( ThreadTest *d )
 
 		totalBlocksWrite       += d->threads[i].blocksWritten;
 		totalBlocksRandomWrite += d->threads[i].blocksRandomWritten;
-		totalBlocksRead        += d->threads[i].blocksRead; 
+		totalBlocksRead        += d->threads[i].blocksRead;
 		totalBlocksRandomRead  += d->threads[i].blocksRandomRead;
-		
+
 		avgWriteLat += d->threads[i].writeLatency.avg;
 		avgRWriteLat += d->threads[i].randomWriteLatency.avg;
 		avgReadLat += d->threads[i].readLatency.avg;
 		avgRReadLat += d->threads[i].randomReadLatency.avg;
-		
+
 		avgLat += d->threads[i].writeLatency.avg;
 		avgLat += d->threads[i].randomWriteLatency.avg;
 		avgLat += d->threads[i].readLatency.avg;
 		avgLat += d->threads[i].randomReadLatency.avg;
-		
+
 		countWriteLat += d->threads[i].writeLatency.count;
 		countRWriteLat += d->threads[i].randomWriteLatency.count;
 		countReadLat += d->threads[i].readLatency.count;
 		countRReadLat += d->threads[i].randomReadLatency.count;
-		
+
 		count1WriteLat += d->threads[i].writeLatency.count1;
 		count1RWriteLat += d->threads[i].randomWriteLatency.count1;
 		count1ReadLat += d->threads[i].readLatency.count1;
 		count1RReadLat += d->threads[i].randomReadLatency.count1;
-		
+
 		count2WriteLat += d->threads[i].writeLatency.count2;
 		count2RWriteLat += d->threads[i].randomWriteLatency.count2;
 		count2ReadLat += d->threads[i].readLatency.count2;
 		count2RReadLat += d->threads[i].randomReadLatency.count2;
-		
+
 		countLat += d->threads[i].writeLatency.count;
 		countLat += d->threads[i].randomWriteLatency.count;
 		countLat += d->threads[i].readLatency.count;
 		countLat += d->threads[i].randomReadLatency.count;
-		
+
 		count1Lat += d->threads[i].writeLatency.count1;
 		count1Lat += d->threads[i].randomWriteLatency.count1;
 		count1Lat += d->threads[i].readLatency.count1;
 		count1Lat += d->threads[i].randomReadLatency.count1;
-		
+
 		count2Lat += d->threads[i].writeLatency.count2;
 		count2Lat += d->threads[i].randomWriteLatency.count2;
 		count2Lat += d->threads[i].readLatency.count2;
 		count2Lat += d->threads[i].randomReadLatency.count2;
-		
+
 		if (maxWriteLat < d->threads[i].writeLatency.max)
 			maxWriteLat = d->threads[i].writeLatency.max;
 		if (maxRWriteLat < d->threads[i].randomWriteLatency.max)
@@ -745,7 +1101,7 @@ static void print_results( ThreadTest *d )
 			maxReadLat = d->threads[i].readLatency.max;
 		if (maxRReadLat < d->threads[i].randomReadLatency.max)
 			maxRReadLat = d->threads[i].randomReadLatency.max;
-			
+
 		if (maxLat < maxWriteLat)
 			maxLat = maxWriteLat;
 		if (maxLat < maxRWriteLat)
@@ -756,8 +1112,8 @@ static void print_results( ThreadTest *d )
 			maxLat = maxRReadLat;
 	}
 
-	if (countWriteLat > 0) 
-	{	
+	if (countWriteLat > 0)
+	{
 		avgWriteLat /= countWriteLat;
 		perc1WriteLat = count1WriteLat*100.0/countWriteLat;
 		perc2WriteLat = count2WriteLat*100.0/countWriteLat;
@@ -800,15 +1156,15 @@ static void print_results( ThreadTest *d )
 	}
 	else
 		avgLat = 0;
-		
-	mbytesWrite = totalBlocksWrite / 
+
+	mbytesWrite = totalBlocksWrite /
 		((double)MBYTE/(double)(d->threads[0].blockSize));
 	mbytesRandomWrite = totalBlocksRandomWrite /
 		((double)MBYTE/(double)(d->threads[0].blockSize));
 
-	mbytesRead = totalBlocksRead / 
+	mbytesRead = totalBlocksRead /
 		((double)MBYTE/(double)(d->threads[0].blockSize));
-	mbytesRandomRead = totalBlocksRandomRead / 
+	mbytesRandomRead = totalBlocksRandomRead /
 		((double)MBYTE/(double)(d->threads[0].blockSize));
 
 	add_timer( &realtime_write, &(d->totalTimeWrite.startRealTime), &(d->totalTimeWrite.stopRealTime) );
@@ -819,30 +1175,30 @@ static void print_results( ThreadTest *d )
 	if(args.terse)
 	{
 		printf("write:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-		       mbytesWrite, 
+		       mbytesWrite,
 		       timeval_to_secs(&realtime_write), timeval_to_secs(&usrtime_write)/d->numThreads, timeval_to_secs(&systime_write)/d->numThreads,
 		       avgWriteLat*1000, maxWriteLat*1000,
 		       perc1WriteLat, perc2WriteLat );
 
 		printf("rwrite:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-		       mbytesRandomWrite, 
+		       mbytesRandomWrite,
 		       timeval_to_secs(&realtime_rwrite), timeval_to_secs(&usrtime_rwrite)/d->numThreads, timeval_to_secs(&systime_rwrite)/d->numThreads,
 		       avgRWriteLat*1000, maxRWriteLat*1000,
 		       perc1RWriteLat, perc2RWriteLat );
 
 		printf("read:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-		       mbytesRead, 
+		       mbytesRead,
 		       timeval_to_secs(&realtime_read), timeval_to_secs(&usrtime_read)/d->numThreads, timeval_to_secs(&systime_read)/d->numThreads,
 		       avgReadLat*1000, maxReadLat*1000,
 		       perc1ReadLat, perc2ReadLat );
 
 		printf("rread:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-		       mbytesRandomRead, 
+		       mbytesRandomRead,
 		       timeval_to_secs(&realtime_rread), timeval_to_secs(&usrtime_rread)/d->numThreads, timeval_to_secs(&systime_rread)/d->numThreads,
 		       avgRReadLat*1000, maxRReadLat*1000,
 		       perc1RReadLat, perc2RReadLat );
 
-		printf("total:%.5f,%.5f,%.5f,%.5f\n", 
+		printf("total:%.5f,%.5f,%.5f,%.5f\n",
 		       avgLat*1000, maxLat*1000, perc1Lat, perc2Lat );
 
 		return;
@@ -850,17 +1206,17 @@ static void print_results( ThreadTest *d )
 
 	write_rate = mbytesWrite / timeval_to_secs(&realtime_write);
 	random_write_rate = mbytesRandomWrite / timeval_to_secs(&realtime_rwrite);
- 
+
 	read_rate  = mbytesRead / timeval_to_secs(&realtime_read);
 	random_read_rate  = mbytesRandomRead / timeval_to_secs(&realtime_rread);
 
-	printf("Tiotest results for %d concurrent io threads:\n", 
+	printf("Tiotest results for %d concurrent io threads:\n",
 	       d->numThreads);
-	
+
 	printf(",----------------------------------------------------------------------.\n");
 	printf("| Item                  | Time     | Rate         | Usr CPU  | Sys CPU |\n");
 	printf("+-----------------------+----------+--------------+----------+---------+\n");
-    
+
 	if(totalBlocksWrite)
 		printf("| Write %11.0f MBs | %6.1f s | %7.3f MB/s | %5.1f %%  | %5.1f %% |\n",
 		       mbytesWrite,
@@ -874,7 +1230,7 @@ static void print_results( ThreadTest *d )
 		       timeval_to_secs(&realtime_rwrite),random_write_rate,
 		       timeval_percentage_of(&usrtime_rwrite, &realtime_rwrite, d->numThreads),
 		       timeval_percentage_of(&systime_rwrite, &realtime_rwrite, d->numThreads) );
-    
+
 	if(totalBlocksRead)
 		printf("| Read %12.0f MBs | %6.1f s | %7.3f MB/s | %5.1f %%  | %5.1f %% |\n",
 		       mbytesRead,
@@ -882,7 +1238,7 @@ static void print_results( ThreadTest *d )
 		       timeval_percentage_of(&usrtime_read, &realtime_read, d->numThreads),
 		       timeval_percentage_of(&systime_read, &realtime_read, d->numThreads) );
 
-    
+
 	if(totalBlocksRandomRead)
 		printf("| Random Read %5.0f MBs | %6.1f s | %7.3f MB/s | %5.1f %%  | %5.1f %% |\n",
 		       mbytesRandomRead,
@@ -891,16 +1247,16 @@ static void print_results( ThreadTest *d )
 		       timeval_percentage_of(&systime_rread, &realtime_rread, d->numThreads) );
 
 	printf("`----------------------------------------------------------------------'\n");
-	
+
 	if (args.showLatency)
 	{
 		printf("Tiotest latency results:\n");
-	
+
 		printf(",-------------------------------------------------------------------------.\n");
 		printf("| Item         | Average latency | Maximum latency | %% >%d sec | %% >%d sec |\n", 
 		       LATENCY_STAT1, LATENCY_STAT2);
 		printf("+--------------+-----------------+-----------------+----------+-----------+\n");
-    
+
 		if(totalBlocksWrite)
 			printf("| Write        | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
 			       avgWriteLat*1000, maxWriteLat*1000, perc1WriteLat,
@@ -910,12 +1266,12 @@ static void print_results( ThreadTest *d )
 			printf("| Random Write | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
 			       avgRWriteLat*1000, maxRWriteLat*1000, perc1RWriteLat,
 			       perc2RWriteLat);
-    
+
 		if(totalBlocksRead)
 			printf("| Read         | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
 			       avgReadLat*1000, maxReadLat*1000, perc1ReadLat,
 			       perc2ReadLat);
-    
+
 		if(totalBlocksRandomRead)
 			printf("| Random Read  | %12.3f ms | %12.3f ms | %8.5f | %9.5f |\n",
 			       avgRReadLat*1000, maxRReadLat*1000, perc1RReadLat,
@@ -930,144 +1286,12 @@ static void print_results( ThreadTest *d )
 	}
 }
 
-static void* do_generic_test(file_io_function io_func, mmap_io_function mmap_func, 
-							 file_offset_function offset_func, mmap_loc_function loc_func, 
-							 ThreadData *d, Timings *timings, Latencies *latencies,
-							 int madvise_advice, unsigned long *blockCount, unsigned long io_ops)
-{
-	int     fd;
-	TIO_off_t  blocks=((TIO_off_t)d->fileSizeInMBytes*MBYTE)/d->blockSize;
-	unsigned int seed = get_random_seed();
-	
-	int     rc;
-	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
-
-	// for now, always read/write, just easier
-	int openFlags = O_RDWR;
-
-	// if not a pre-existing device, add create flag
-	if (!args.rawDrives)
-		openFlags |= O_CREAT;
-
-	// if sync I/O requested, do it at open time
-	if( args.syncWriting )
-		openFlags |= O_SYNC;
-
-#ifdef USE_LARGEFILES
-	openFlags |= O_LARGEFILE;
-#endif
-    
-	fd = open(d->fileName, openFlags, 0600 );
-	if(fd == -1) {
-		fprintf(stderr, "%s: %s\n", strerror(errno), d->fileName);
-		return 0;
-	}
-
-	/* if doing real files, get them pre-allocated in size */
-	if (!args.rawDrives) {
-		t_log(LEVEL_DEBUG, "calling " xstr(TIO_ftruncate) "() on file descriptor");
-		rc = TIO_ftruncate(fd, bytesize); /* pre-allocate space */
-		if(rc != 0) {
-			perror(xstr(TIO_ftruncate) "() failed");
-			close(fd);
-			return 0;
-		}
-	}
-
-	timer_start( timings );
-
-	if(args.use_mmap)
-	{
-		/**
-		 * MEMORY-MAPPED OPERATIONS
-		 */
-		unsigned long chunk_num;
-		// rounds the number of mmap chunks up, basically ceiling function
-		TIO_off_t num_mmap_chunks = bytesize/MMAP_CHUNK_SIZE + 1;
-
-		for(chunk_num=0; chunk_num < num_mmap_chunks; chunk_num++)
-		{
-			void *file_loc = NULL;
-			long this_chunk_offset = d->fileOffset + chunk_num*MMAP_CHUNK_SIZE;
-			long this_chunk_size = MIN(MMAP_CHUNK_SIZE, (TIO_off_t)bytesize - chunk_num*MMAP_CHUNK_SIZE);
-			long this_chunk_blocks = this_chunk_size / d->blockSize;
-			void *current_loc = NULL;
-
-			file_loc=TIO_mmap(NULL,this_chunk_size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
-							  this_chunk_offset);
-			if(file_loc == MAP_FAILED) {
-				fprintf(stderr, "this_chunk_size=%ld, fd=%d, offset=" OFFSET_FORMAT 
-						"\n", this_chunk_size, fd, d->fileOffset);
-				perror("Error " xstr(TIO_mmap) "()ing data file");
-				close(fd);
-				return 0;
-			}
-
-			madvise(file_loc, this_chunk_size, madvise_advice);
-
-			current_loc = file_loc - d->blockSize; // back-one hack for sequential case
-			while(io_ops--) {
-				int ret;
-				struct timeval tv_start, tv_stop;
-				
-				current_loc = (*loc_func)(file_loc, current_loc, d, &(seed));
-
-				gettimeofday(&tv_start, NULL);
-
-				ret = mmap_func(current_loc, d);
-				if(ret != 0)
-					exit(ret);
-
-				if( args.syncWriting ) msync(current_loc, d->blockSize, MS_SYNC);
-
-				gettimeofday(&tv_stop, NULL);
-				update_latency_info(latencies, tv_start, tv_stop);
-			} 
-			
-			(*blockCount) += this_chunk_blocks; // take this out of the for loop, we don't handle errors that well
-			
-			munmap(file_loc, this_chunk_size);
-		}
-	} else {
-		/**
-		 * REGULAR I/O OPERATIONS
-		 */
-		//TIO_off_t current_offset = d->fileOffset;
-		TIO_off_t current_offset = d->fileOffset - d->blockSize; // back-one hack for sequential case
-
-		while(io_ops--)
-		{
-			struct timeval tv_start, tv_stop;
-			int ret;
-
-			current_offset = (*offset_func)(current_offset, d, &(seed));
-
-			gettimeofday(&tv_start, NULL);
-			ret = (*io_func)(fd, current_offset, d);
-			if(ret != 0)
-				exit(ret);
-
-			gettimeofday(&tv_stop, NULL);
-			update_latency_info(latencies, tv_start, tv_stop);
-		} 
-
-		(*blockCount) += blocks; // take this out of the for loop, we don't handle errors that well
-	}
-	
-	fsync(fd);
-
-	close(fd);
-
-	timer_stop( timings );
-
-	return 0;
-}
 
 /*
  * p{write,read} functions
  */
 
-// 
+//
 // define functions to get the next offset for the next I/O operation
 //
 
@@ -1084,7 +1308,7 @@ static TIO_off_t get_random_offset(TIO_off_t current_offset, ThreadData *d, unsi
 	return d->fileOffset + offset;
 }
 
-// 
+//
 // define READ/WRITE operations on file descriptors
 //
 
@@ -1112,7 +1336,7 @@ static int do_pread_operation(int fd, TIO_off_t offset, ThreadData *d)
 			}
 		}
 	}
-	
+
 	return 0;
 }
 
@@ -1154,7 +1378,7 @@ static void *get_random_loc(void *base_loc, void *current_loc, ThreadData *d, un
 	return base_loc + offset;
 }
 
-// 
+//
 // define functions to perform the next mmap-based read or write
 //
 
@@ -1183,135 +1407,42 @@ static int do_mmap_write_operation(void *loc, ThreadData *d)
 	return 0;
 }
 
-static unsigned long get_number_of_blocks(ThreadData *d)
-{
-	return (d->fileSizeInMBytes * MB) / d->blockSize;
-}
-
-////////////////////////////////////////////////////////////////////////////////////
-static void do_read_test( ThreadData *d )
-{
-	t_log(LEVEL_INFO, "Doing sequential read test");
-	do_generic_test(do_pread_operation, do_mmap_read_operation,
-					get_sequential_offset, get_sequential_loc,
-					d, &(d->readTimings), &(d->readLatency),
-					MADV_SEQUENTIAL, &(d->blocksRead), get_number_of_blocks(d));
-}
-
-void do_write_test( ThreadData *d )
-{
-	t_log(LEVEL_INFO, "Doing sequential write test");
-	do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
-					get_sequential_offset, get_sequential_loc,
-					d, &(d->writeTimings), &(d->writeLatency),
-					MADV_SEQUENTIAL, &(d->blocksWritten), get_number_of_blocks(d));
-}
-
-void do_random_read_test( ThreadData *d )
-{
-	t_log(LEVEL_INFO, "Doing random read test");
-	do_generic_test(do_pread_operation, do_mmap_read_operation, 
-					get_random_offset, get_random_loc,
-					d, &(d->randomReadTimings), &(d->randomReadLatency),
-					MADV_RANDOM, &(d->blocksRandomRead), d->numRandomOps);
-}
-
-void do_random_write_test( ThreadData *d )
-{
-	t_log(LEVEL_INFO, "Doing random write test");
-	do_generic_test(do_pwrite_operation, do_mmap_write_operation, 
-					get_random_offset, get_random_loc,
-					d, &(d->randomWriteTimings), &(d->randomWriteLatency),
-					MADV_RANDOM, &(d->blocksRandomWritten), d->numRandomOps);
-}
-
 ////////////////////////////////////////////////////////////////////////////////////
 
-static unsigned int get_random_seed()
+int main(int argc, char *argv[])
 {
-	unsigned int seed;
-	struct timeval r;
-    
-	if(gettimeofday( &r, NULL ) == 0) {
-		seed = r.tv_usec;
-	} else {
-		seed = 0xDEADBEEF;
-	}
+	ThreadTest test;
+	int i;
 
-	return seed;
-}
+	strcpy(args.path[0], DEFAULT_DIRECTORY );
+	args.pathsCount = 1;
+	args.fileSizeInMBytes = DEFAULT_FILESIZE;
+	args.blockSize = DEFAULT_BLOCKSIZE;
+	args.numThreads = DEFAULT_THREADS;
+	args.numRandomOps = DEFAULT_RANDOM_OPS;
+	args.debugLevel = DEFAULT_DEBUG_LEVEL;
+	args.verbose = FALSE;
+	args.terse = FALSE;
+	args.use_mmap = FALSE;
+	args.consistencyCheckData = FALSE;
+	args.syncWriting = FALSE;
+	args.rawDrives = FALSE;
+	args.showLatency = TRUE;
+	args.threadOffset = DEFAULT_RAW_OFFSET;
+	args.useThreadOffsetForFirstThread = FALSE;
 
-static TIO_off_t get_random_number(const TIO_off_t max, unsigned int *seed)
-{
-	unsigned long rr = rand_r(seed);
+	for(i = 0; i < TEST_COUNT; i++)
+		args.testsToRun[i] = 1;
 
-    // if it doesn't give us enough random bits, add some more
-	if(RAND_MAX < max)
-	{
-		rr |= (rand_r(seed) << 16);
-	}
+	parse_args( &args, argc, argv );
 
-	return (TIO_off_t) (rr % max);
-}
+	initialize_test( &test );
 
-static void timer_init(Timings *t)
-{
-	memset( t, 0, sizeof(Timings) );
-}
+	do_tests( &test );
 
-static void timer_start(Timings *t)
-{
-	struct rusage ru;
+	print_results( &test );
 
-	if(gettimeofday( &(t->startRealTime), NULL ))
-	{
-		perror("Error in timer_start from gettimeofday()\n");
-		exit(10);
-	}
+	cleanup_test( &test );
 
-	if(getrusage( RUSAGE_SELF, &ru ))
-	{
-		perror("Error in timer_start from getrusage()\n");
-		exit(11);
-	}
-
-	memcpy( &(t->startUserTime), &(ru.ru_utime), sizeof( struct timeval ));
-	memcpy( &(t->startSysTime), &(ru.ru_stime), sizeof( struct timeval ));
-}
-
-static void timer_stop(Timings *t)
-{
-	struct rusage ru;
-
-	if( getrusage( RUSAGE_SELF, &ru ))
-	{
-		perror("Error in timer_stop from getrusage()\n");
-		exit(11);
-	}
-
-	if(gettimeofday( &(t->stopRealTime), NULL ))
-	{
-		perror("Error in timer_stop from gettimeofday()\n");
-		exit(10);
-	}
-
-	memcpy( &(t->stopUserTime), &(ru.ru_utime), sizeof( struct timeval ));
-	memcpy( &(t->stopSysTime), &(ru.ru_stime), sizeof( struct timeval ));
-}
-
-static unsigned long long tv_to_usec(const struct timeval* v)
-{
-	return v->tv_sec * (1000*1000) + v->tv_usec;
-}
-
-static float timeval_percentage_of(const struct timeval* value, const struct timeval* from, unsigned int divider)
-{
-	unsigned long long v;
-	float p;
-
-	v = (100 * 100 * tv_to_usec(value)) / tv_to_usec(from);
-	
-	p = (float)v / (100.0 * divider);
-
-	return p;
+	return 0;
 }

@@ -29,7 +29,7 @@
 #define TEST_DATA1 (int)0xCAFEBABE
 #define TEST_DATA2 (int)0xDEADBEEF
 
-static const char* versionStr = "$Id$ (C) 2003 tiobench team <http://tiobench.sf.net/>";
+static const char* versionStr = "v0.4.2";
 
 void print_version()
 {
