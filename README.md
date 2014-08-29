@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/aliceinwire/tiobench-1.svg?branch=master)](https://travis-ci.org/aliceinwire/tiobench-1)
+[![Build Status](https://travis-ci.org/aliceinwire/tiobench-1.svg?branch=master)](https://travis-ci.org/aliceinwire/tiobench-1)  
 Tiobench and tiotest (https://github.com/mkuoppal/tiobench)
    
 Threaded I/O bench for Linux (or any *nix system with POSIX threads
