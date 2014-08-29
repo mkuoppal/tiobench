@@ -1,3 +1,3 @@
 language: c
 script: make
-after_script: ./tiobench.pl && tiotest
+after_script: ./tiobench.pl
