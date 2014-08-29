@@ -2,7 +2,7 @@
 
 CC=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
-CFLAGS=-O2 -Wall -Werror
+CFLAGS=-O2 -Wall 
 #CFLAGS=-O0 -g -Wall
 
 # This enables support for 64bit file offsets, allowing

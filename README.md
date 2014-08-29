@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/mkuoppal/tiobench.svg?branch=master)](https://travis-ci.org/mkuoppal/tiobench)  
 Tiobench and tiotest (https://github.com/mkuoppal/tiobench)
    
 Threaded I/O bench for Linux (or any *nix system with POSIX threads
@@ -39,7 +40,7 @@ Credits:
 	relentlessly fixed typos and Mika's misspellings 
 	everywhere.
 
-	Jakob Østergaard <jakob at ostenfeld.dk> proposed fsync
+	Jakob Ã˜stergaard <jakob at ostenfeld.dk> proposed fsync
 	fix, and option for sequential writing to prevent
 	file fragmentation.
 
