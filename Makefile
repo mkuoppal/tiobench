@@ -38,7 +38,7 @@ test_largefiles.o: tiotest.h test_largefiles.c
 	$(CC) -c -DUSE_LARGEFILES $(CFLAGS) $(DEFINES) test_largefiles.c -o test_largefiles.o
 
 $(TIOTEST): tiotest.o crc32.o
-	$(LINK) -o $(TIOTEST) tiotest.o crc32.o -lpthread
+	$(LINK) -o $(TIOTEST) $(LDFLAGS) tiotest.o crc32.o -lpthread
 	@echo
 	@echo "./tiobench.pl --help for usage options"
 	@echo
