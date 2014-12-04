@@ -249,6 +249,9 @@ my %report = (
    'RAND_WRITES' => 'Random Writes',
 );
 
+# The top is the same for all 4 reports
+$^ = 'SEQ_READS_TOP';
+
 foreach my $title ('SEQ_READS', 'RAND_READS', 'SEQ_WRITES', 'RAND_WRITES') {
    $-=0; $~="$title"; $^L=''; # reporting variables
    print "\n$report{$title}\n";
