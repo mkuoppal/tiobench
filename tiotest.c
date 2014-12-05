@@ -24,12 +24,18 @@
 #include "crc32.h"
 #include <assert.h>
 
+#include <unistd.h>
+#include <sys/types.h>
+
 #define WRITE_TEST         0
 #define RANDOM_WRITE_TEST  1
 #define READ_TEST          2
 #define RANDOM_READ_TEST   3
 
 #define TEST_COUNT         4
+
+#define CACHE_CONTROL_FILE "/proc/sys/vm/drop_caches"
+#define CACHE_DROP_ALL_FLAG "3";
 
 struct tt_rusage {
 	struct timeval startRealTime;
@@ -114,6 +120,7 @@ typedef struct {
 	int	     runRandomWrite;
 	int	     runRead;
 	int	     runRandomRead;
+	int	     flushCaches;
 
 	/*
 	  Debug level
@@ -376,6 +383,8 @@ static void print_help_and_exit()
 	print_option("-D", "Debug level",
 		     my_int_to_string(DEFAULT_DEBUG_LEVEL));
 
+	print_option("-F", "Flush OS caches before running test (requires root)", 0);
+
 	print_option("-h", "Print this help and exit", 0);
 
 	exit(1);
@@ -388,7 +397,7 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 
 	while (1)
 	{
-		c = getopt( argc, argv, "f:b:d:t:r:D:k:o:hLRTWSOcM");
+		c = getopt( argc, argv, "f:b:d:t:r:D:k:o:hLRTWSOcMF");
 
 		if (c == -1)
 			break;
@@ -473,6 +482,10 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			args->useThreadOffsetForFirstThread = TRUE;
 			break;
 
+		case 'F':
+			args->flushCaches = TRUE;
+			break;
+
 		case 'k':
 		{
 			const int i = atoi(optarg);
@@ -492,6 +505,51 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 			break;
 		}
 	}
+}
+
+static int flush_caches()
+{
+	int retVal = 0;
+	int fd;
+
+	if (geteuid() != 0)
+	{
+		fprintf(stderr, "Cache flushing requires root.\n");
+	}
+	else
+	{
+		fd = open(CACHE_CONTROL_FILE, O_RDWR);
+		if (fd == -1)
+		{
+			fprintf(stderr, "%s: %s\n", strerror(errno),
+ 				CACHE_CONTROL_FILE);
+		}
+		else
+		{
+			char drop_all_message[] = CACHE_DROP_ALL_FLAG;
+			int length = strlen(drop_all_message);
+			int written = write(fd, drop_all_message,
+					    length);
+			if (written == -1)
+			{
+				fprintf(stderr, "%s: %s\n", strerror(errno),
+					drop_all_message);
+			}
+			else if (written != length)
+			{
+				fprintf(stderr,
+					"Error: only wrote %d of %d bytes.\n",
+					written, length);
+			}
+			else
+			{
+				// successful write.
+				retVal = 1;
+			}
+			close(fd);
+		}
+	}
+	return retVal;
 }
 
 static void* do_generic_test(file_io_function io_func,
@@ -542,6 +600,15 @@ static void* do_generic_test(file_io_function io_func,
 			return 0;
 		}
 	}
+
+	if (args.flushCaches)
+	{
+		if (!flush_caches())
+		{
+			close(fd);
+			return 0;
+                }
+        }
 
 	timer_start( timings );
 
@@ -1430,6 +1497,7 @@ int main(int argc, char *argv[])
 	args.showLatency = TRUE;
 	args.threadOffset = DEFAULT_RAW_OFFSET;
 	args.useThreadOffsetForFirstThread = FALSE;
+	args.flushCaches = FALSE;
 
 	for(i = 0; i < TEST_COUNT; i++)
 		args.testsToRun[i] = 1;

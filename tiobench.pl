@@ -63,7 +63,7 @@ my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
 my $identifier;    my $debug;       my $dump;         my $progress;
-my $timeout;       my $rawdev;
+my $timeout;       my $rawdev;      my $flushCaches;
 
 # option parsing
 GetOptions("target=s@",\@targets,
@@ -78,7 +78,8 @@ GetOptions("target=s@",\@targets,
            "timeout=i",\$timeout,
            "dump",\$dump,
            "progress",\$progress,
-           "threads=i@",\@threads);
+           "threads=i@",\@threads,
+           "flushCaches", \$flushCaches);
 
 &usage if $help || $Getopt::Long::error;
 
@@ -181,6 +182,7 @@ foreach $size (@sizes) {
          $run_string .= " -W" if $nofrag;
          $run_string .= " -R" if $rawdev;
          $run_string .= " -D $debug" if $debug > 0;
+         $run_string .= " -F" if $flushCaches;
          foreach $run_number (1..$num_runs) {
             print "Running: $run_string\n"
                if $debug >= $LEVEL_INFO;
@@ -284,6 +286,7 @@ sub usage {
             "[--dump] (dump in Data::Dumper format, no report)\n\t",
             "[--progress] (monitor progress with Term::ProgressBar)\n\t",
             "[--timeout TimeoutInSeconds]\n\t",
+            "[--flushCaches] (requires root)\n\t",
             "[--debug DebugLevel]\n\n",
    "+ means you can specify this option multiple times to cover multiple\n",
    "cases, for instance: $0 --block 4096 --block 8192 will first run\n",
