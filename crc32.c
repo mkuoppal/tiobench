@@ -72,10 +72,9 @@ static const unsigned long crctab[256] = {
   0xA2F33668, 0xBCB4666D, 0xB8757BDA, 0xB5365D03, 0xB1F740B4
 };
 
-inline
-unsigned long crc32(  const void* buffer, 
-		      unsigned long length, 
-		      unsigned long crc)
+unsigned long crc32(const void* buffer,
+		    unsigned long length,
+		    unsigned long crc)
 {
       const unsigned char* cp = (const unsigned char*)buffer;
 

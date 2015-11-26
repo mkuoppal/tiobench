@@ -1392,7 +1392,7 @@ static int do_mmap_read_operation(void *loc, ThreadData *d)
 
 		if(crc != d->bufferCrc)
 		{
-			fprintf(stderr, "Thread(%lu) mmap consistency check failed at 0x%x\n", d->myNumber, (unsigned int)loc);
+			fprintf(stderr, "Thread(%lu) mmap consistency check failed at 0x%p\n", d->myNumber, loc);
 			return -1;
 		}
 	}

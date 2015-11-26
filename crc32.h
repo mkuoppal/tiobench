@@ -18,9 +18,8 @@
 #ifndef CRC32_H
 #define CRC32_H
 
-inline 
-unsigned long crc32( const void* const buffer, 
-		      unsigned long length, 
-		      unsigned long crc);
+unsigned long crc32(const void* const buffer,
+		    unsigned long length,
+		    unsigned long crc);
 
 #endif
