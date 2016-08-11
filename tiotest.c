@@ -688,6 +688,9 @@ static void* do_generic_test(file_io_function io_func,
 
 			gettimeofday(&tv_stop, NULL);
 			update_latency_info(latencies, tv_start, tv_stop);
+
+			if(io_ops % 512 == 0)
+				fsync(fd);
 		}
 
 		(*blockCount) += io_ops; // take this out of the for loop, we don't handle errors that well
