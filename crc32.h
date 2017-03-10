@@ -18,8 +18,18 @@
 #ifndef CRC32_H
 #define CRC32_H
 
-unsigned long crc32(const void* const buffer,
-		    unsigned long length,
-		    unsigned long crc);
+static const unsigned long crctab[256];
+
+static inline unsigned long crc32(const void* const buffer,
+		                  unsigned long     length,
+		                  unsigned long     crc)
+{
+      const unsigned char* cp = (const unsigned char*)buffer;
+
+      while (length--)
+        crc = (crc << 8) ^ crctab[((crc >> 24) ^ *(cp++)) & 0xFF];
+
+      return crc;
+}
 
 #endif
