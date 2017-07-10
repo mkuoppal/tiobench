@@ -63,7 +63,7 @@ my $read_mbytes;   my $read_time;   my $read_utime;   my $read_stime;
 my $rread_mbytes;  my $rread_time;  my $rread_utime;  my $rread_stime;
 my $num_runs;      my $run_number;  my $help;         my $nofrag;
 my $identifier;    my $debug;       my $dump;         my $progress;
-my $timeout;       my $rawdev;      my $flushCaches;
+my $timeout;       my $rawdev;      my $flushCaches;  my $directIO;
 
 # option parsing
 GetOptions("target=s@",\@targets,
@@ -79,7 +79,8 @@ GetOptions("target=s@",\@targets,
            "dump",\$dump,
            "progress",\$progress,
            "threads=i@",\@threads,
-           "flushCaches", \$flushCaches);
+           "flushCaches", \$flushCaches,
+           "directio", \$directIO,);
 
 &usage if $help || $Getopt::Long::error;
 
@@ -183,6 +184,7 @@ foreach $size (@sizes) {
          $run_string .= " -R" if $rawdev;
          $run_string .= " -D $debug" if $debug > 0;
          $run_string .= " -F" if $flushCaches;
+         $run_string .= " -X" if $directIO;
          foreach $run_number (1..$num_runs) {
             print "Running: $run_string\n"
                if $debug >= $LEVEL_INFO;
