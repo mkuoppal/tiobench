@@ -387,7 +387,7 @@ static void print_help_and_exit()
 
 	print_option("-F", "Flush OS caches before running test (requires root)", 0);
 
-	print_option("-X", "Use direct I/O to bypass buffer cache", 0);
+	print_option("-X", "Use direct I/O to bypass buffer cache (blocksize must be a multiple of logical blocksize of underlying filesystem)", 0);
 
 	print_option("-h", "Print this help and exit", 0);
 
