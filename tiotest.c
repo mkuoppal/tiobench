@@ -121,6 +121,8 @@ typedef struct {
 	int	     runRead;
 	int	     runRandomRead;
 	int	     flushCaches;
+	int	     openDirect;
+
 
 	/*
 	  Debug level
@@ -385,6 +387,8 @@ static void print_help_and_exit()
 
 	print_option("-F", "Flush OS caches before running test (requires root)", 0);
 
+	print_option("-X", "Use direct I/O to bypass buffer cache (blocksize must be a multiple of logical blocksize of underlying filesystem)", 0);
+
 	print_option("-h", "Print this help and exit", 0);
 
 	exit(1);
@@ -397,7 +401,7 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 
 	while (1)
 	{
-		c = getopt( argc, argv, "f:b:d:t:r:D:k:o:hLRTWSOcMF");
+		c = getopt( argc, argv, "f:b:d:t:r:D:k:o:hLRTWSOcMFX");
 
 		if (c == -1)
 			break;
@@ -484,6 +488,10 @@ static void parse_args( ArgumentOptions* args, int argc, char *argv[] )
 
 		case 'F':
 			args->flushCaches = TRUE;
+			break;
+
+		case 'X':
+			args->openDirect = TRUE;
 			break;
 
 		case 'k':
@@ -579,6 +587,10 @@ static void* do_generic_test(file_io_function io_func,
 	// if sync I/O requested, do it at open time
 	if( args.syncWriting )
 		openFlags |= O_SYNC;
+
+	// if direct I/O requested, do it at open time
+	if( args.openDirect )
+		openFlags |= O_DIRECT;
 
 #ifdef USE_LARGEFILES
 	openFlags |= O_LARGEFILE;
