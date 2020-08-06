@@ -110,50 +110,50 @@ unless(@sizes) { # try to be a little smart about file size when possible
 
 # setup the reporting stuff for fancy output
 format SEQ_READS_TOP =
-                              File   Blk   Num                     Avg      Maximum      Lat%     Lat%    CPU
-Identifier                    Size   Size  Thr    Rate   (CPU%)  Latency    Latency      >2s      >10s    Eff
----------------------------- ------ ------ ---  -------- ------ --------- -----------  -------- -------- -----
+                              File   Blk   Num                       Avg      Maximum      Lat%     Lat%     CPU
+Identifier                    Size   Size  Thr     Rate    (CPU%)  Latency    Latency      >2s      >10s     Eff
+---------------------------- ------ ------ ---  ---------- ------ --------- -----------  -------- -------- -------
 .
 
 format SEQ_READS =
-@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @####.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @######.## @>>>>% @####.### @#######.##  @#.##### @#.##### @######
 $identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'read'}{'cpueff'}
 .
 
 format RAND_READS =
-@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @####.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @######.## @>>>>% @####.### @#######.##  @#.##### @#.##### @######
 $identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rread'}{'cpueff'}
 .
 
 format SEQ_WRITES =
-@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @####.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @######.## @>>>>% @####.### @#######.##  @#.##### @#.##### @######
 $identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'write'}{'cpueff'}
 .
 
 
 format RAND_WRITES =
-@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @####.## @>>>>% @####.### @#######.##  @#.##### @#.##### @####
+@<<<<<<<<<<<<<<<<<<<<<<<<<<< @||||| @||||| @>>  @######.## @>>>>% @####.### @#######.##  @#.##### @#.##### @######
 $identifier,$size,$block,$thread,$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'rate'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'cpu'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'avglat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'maxlat'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'pct_gt_2_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'pct_gt_10_sec'},$stat_data{$identifier}{$thread}{$size}{$block}{'rwrite'}{'cpueff'}
 .
 
 
-                 
-my $total_runs; 
-my $total_runs_completed; 
+
+my $total_runs;
+my $total_runs_completed;
 my $progressbar;
 
 if ($progress) {
    $total_runs = $num_runs    *
-                 scalar(@targets) * 
-                 scalar(@sizes) * 
-                 scalar(@blocks) * 
+                 scalar(@targets) *
+                 scalar(@sizes) *
+                 scalar(@blocks) *
                  scalar(@threads);
    $total_runs_completed = 0;
 
    require Term::ProgressBar;
    $progressbar = Term::ProgressBar->new({name  => 'tiotest runs',
                                           count => $total_runs,
-                                          ETA   => 'linear', 
+                                          ETA   => 'linear',
                                          });
 }
 
@@ -208,12 +208,12 @@ foreach $size (@sizes) {
             $progressbar->update(++$total_runs_completed) if $progress;
          }
          for my $field ('read','rread','write','rwrite') {
-            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} = 
+            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} =
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'amount'} /
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
-            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'} = 
+            $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpu'} =
                100 * ( $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'utime'} +
-               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'} ) / 
+               $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'stime'} ) /
                $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'time'};
             $stat_data{$identifier}{$thread}{$size}{$block}{$field}{'cpueff'} =
                ($stat_data{$identifier}{$thread}{$size}{$block}{$field}{'rate'} /
@@ -329,7 +329,7 @@ sub get_memory_size {
          if $debug >= $LEVEL_DEBUG;
       return $amt;
    # nothing else worked, just pick a default of 256 MB
-   } else { 
+   } else {
       print "Cannot figure out memory size, going with 256 MB\n"
          if $debug >= $LEVEL_DEBUG;
       return 256*$MB;
