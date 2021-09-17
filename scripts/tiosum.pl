@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 #    Author: Randy Hron <rwhron (at) earthlink dot net>
 #       This software may be used and distributed according to the terms of
 #       the GNU General Public License, http://www.gnu.org/copyleft/gpl.html
@@ -6,6 +6,7 @@
 #     Summarize output of tiobench2.pl for multiple kernels/runs.
 #       Assumes logfiles created with: 
 #       ./tiobench2.pl > tiobench-`uname -r` 2> tiobench-`uname -r`.err
+use warnings;
 use strict;
 $|++;
 

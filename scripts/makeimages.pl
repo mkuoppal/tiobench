@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 
 #    Author: James Manning <jmm@users.sf.net>
 #       This software may be used and distributed according to the terms of
@@ -8,6 +8,7 @@
 #       Perl wrapper for calling tiobench.pl and displaying results
 #       graphically using gnuplot
 
+use warnings;
 use strict;
 
 my $args = join(" ",@ARGV);

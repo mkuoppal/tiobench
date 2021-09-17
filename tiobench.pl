@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 
 #    Author: James Manning <jmm at users.sf.net>
 #    Author: Randy Hron <rwhron at earthlink dot net>
@@ -9,6 +9,7 @@
 #       Perl wrapper for calling the tiotest executable multiple times
 #       with varying sets of parameters as instructed
 
+use warnings;
 use strict;
 use Getopt::Long;
 
