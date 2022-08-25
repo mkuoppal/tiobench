@@ -526,7 +526,7 @@ static int flush_caches()
 	}
 	else
 	{
-		fd = open(CACHE_CONTROL_FILE, O_RDWR);
+		fd = open(CACHE_CONTROL_FILE, O_WRONLY);
 		if (fd == -1)
 		{
 			fprintf(stderr, "%s: %s\n", strerror(errno),
