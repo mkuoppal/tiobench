@@ -640,6 +640,7 @@ static void* do_generic_test(file_io_function io_func,
 			long this_chunk_size = MIN(MMAP_CHUNK_SIZE, (TIO_off_t)bytesize - chunk_num*MMAP_CHUNK_SIZE);
 			long this_chunk_blocks = this_chunk_size / d->blockSize;
 			void *current_loc = NULL;
+			int i;
 
 			file_loc=TIO_mmap(NULL,this_chunk_size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,
 					  this_chunk_offset);
@@ -654,7 +655,8 @@ static void* do_generic_test(file_io_function io_func,
 			madvise(file_loc, this_chunk_size, madvise_advice);
 
 			current_loc = file_loc - d->blockSize; // back-one hack for sequential case
-			while(io_ops--) {
+			for(i = 0; i < io_ops; i++)
+			{
 				int ret;
 				struct timeval tv_start, tv_stop;
 
@@ -672,7 +674,7 @@ static void* do_generic_test(file_io_function io_func,
 				update_latency_info(latencies, tv_start, tv_stop);
 			}
 
-			(*blockCount) += this_chunk_blocks; // take this out of the for loop, we don't handle errors that well
+			(*blockCount) += io_ops; // take this out of the for loop, we don't handle errors that well
 
 			munmap(file_loc, this_chunk_size);
 		}
@@ -682,8 +684,9 @@ static void* do_generic_test(file_io_function io_func,
 		 */
 		//TIO_off_t current_offset = d->fileOffset;
 		TIO_off_t current_offset = d->fileOffset - d->blockSize; // back-one hack for sequential case
+		int i;
 
-		while(io_ops--)
+		for(i = 0; i < io_ops; i++)
 		{
 			struct timeval tv_start, tv_stop;
 			int ret;
@@ -697,9 +700,12 @@ static void* do_generic_test(file_io_function io_func,
 
 			gettimeofday(&tv_stop, NULL);
 			update_latency_info(latencies, tv_start, tv_stop);
+
+			if(io_ops % 512 == 0)
+				fsync(fd);
 		}
 
-		(*blockCount) += blocks; // take this out of the for loop, we don't handle errors that well
+		(*blockCount) += io_ops; // take this out of the for loop, we don't handle errors that well
 	}
 
 	fsync(fd);
