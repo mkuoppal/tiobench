@@ -63,7 +63,7 @@
 
 #define DEFAULT_FILESIZE       (10) /* In Megs !!! */
 #define DEFAULT_THREADS        4
-#define DEFAULT_RANDOM_OPS     1000
+#define DEFAULT_RANDOM_OPS     100000
 #define DEFAULT_DIRECTORY      "."
 #define DEFAULT_BLOCKSIZE      (4*KBYTE)
 #define DEFAULT_RAW_OFFSET     0
