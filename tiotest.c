@@ -573,6 +573,7 @@ static void* do_generic_test(file_io_function io_func,
 	int     fd;
 	TIO_off_t  blocks=((TIO_off_t)d->fileSizeInMBytes*MBYTE)/d->blockSize;
 	unsigned int seed = get_random_seed();
+	unsigned long orig_iops = io_ops;
 
 	int     rc;
 	TIO_off_t  bytesize=blocks*d->blockSize; /* truncates down to BS multiple */
@@ -672,7 +673,7 @@ static void* do_generic_test(file_io_function io_func,
 				update_latency_info(latencies, tv_start, tv_stop);
 			}
 
-			(*blockCount) += this_chunk_blocks; // take this out of the for loop, we don't handle errors that well
+			(*blockCount) += orig_iops; // take this out of the for loop, we don't handle errors that well
 
 			munmap(file_loc, this_chunk_size);
 		}
@@ -699,7 +700,7 @@ static void* do_generic_test(file_io_function io_func,
 			update_latency_info(latencies, tv_start, tv_stop);
 		}
 
-		(*blockCount) += blocks; // take this out of the for loop, we don't handle errors that well
+		(*blockCount) += orig_iops; // take this out of the for loop, we don't handle errors that well
 	}
 
 	fsync(fd);
