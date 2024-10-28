@@ -1,6 +1,6 @@
 # Makefile for tiotest
 
-CC=gcc
+CC?=gcc
 #CFLAGS=-O3 -fomit-frame-pointer -Wall
 CFLAGS=-O2 -Wall 
 #CFLAGS=-O0 -g -Wall
@@ -14,7 +14,7 @@ DEFINES=-DUSE_LARGEFILES
 # in process scope despite of threads
 # DEFINES=-DGETRUSAGE_PROCESS_SCOPE
 
-LINK=gcc
+LINK=$(CC)
 TIOTEST=tiotest
 TEST_LARGE=test_largefiles
 PROJECT=tiobench
